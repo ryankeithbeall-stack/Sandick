@@ -1,7 +1,7 @@
 # Sandick — Outstanding TODO
 
 Status of the HIP-3 equal-weighted basket vault. What's **done** is tested
-(62 Python + 12 contract tests); what's below is what remains before this can
+(139 Python + 16 contract tests); what's below is what remains before this can
 hold real money, plus the product surface that doesn't exist yet.
 
 Legend: 🔴 blocker for mainnet · 🟠 important · 🟢 nice-to-have
@@ -50,8 +50,9 @@ The architecture is simulation-tested only. Prove the live round-trip:
       (share price = on-chain reads; any manipulation = mispriced deposits).
 
 ## 4. Contract hardening 🟠
-- [ ] **NAV completeness**: add the spot-balance precompile so USDC parked in
-      spot mid-bridge is counted (today only perp `accountValue` + idle EVM).
+- [~] **NAV completeness**: `_coreSpotUsd()` hook is now folded into
+      `totalAssets` (default 0); wiring the real spot-balance precompile so USDC
+      parked in spot mid-bridge is counted remains.
 - [x] **Pausability / circuit breaker** (owner pauses deposits/trading; exits
       stay open). `pause`/`unpause` in `SandickVaultBase`.
 - [x] **Per-tx and per-epoch caps** on manager order notional (`setOrderCaps`).
@@ -61,8 +62,6 @@ The architecture is simulation-tested only. Prove the live round-trip:
       reads** still need explicit handling.
 - [x] Events/telemetry for every state transition (subgraph-friendly) — incl.
       `OrderCapsUpdated` + OZ `Paused`/`Unpaused`.
-- [~] **NAV completeness**: `_coreSpotUsd()` hook now folded into `totalAssets`
-      (default 0); wiring the real spot-balance precompile remains.
 
 ## 5. Operations / keeper 🟠
 - [~] **Manager keeper bot**: pure decision logic landed in `sandick/keeper.py`
@@ -78,8 +77,8 @@ The architecture is simulation-tested only. Prove the live round-trip:
 - [ ] Confirm the vault's EVM USDC token is 6-decimal (else adjust `coreScale`).
 
 ## 7. Engineering hygiene 🟢
-- [x] CI: run `ruff` + `pytest` + `npm run test:contracts` on every push
-      (`.github/workflows/ci.yml`).
+- [x] CI: `ruff` + `pytest` (coverage-gated, py3.10–3.12) + `npm run
+      test:contracts` + contract coverage on every push (`.github/workflows/ci.yml`).
 - [ ] Foundry test suite (mirrors the ethereumjs tests) for auditor familiarity.
 - [ ] Fork/integration tests against a HyperEVM testnet fork if tooling allows.
 - [x] Linting/formatting for Python (ruff, configured in `pyproject.toml`).
@@ -99,5 +98,5 @@ vault (custody, trade-only manager + allow-list, NAV via `accountMarginSummary`
 precompile, async redemption queue) · rebalance (delta, reduce-only) · HIP-3
 asset-id / 1e8 encoding bridge · deploy + calibration scripts · owner pause +
 order-notional caps · spot-NAV hook · keeper decision logic · front-end
-(demo) + viem chain layer · CI + ruff · depositor docs. All tested
-(72 Python + 15 contract).
+(demo) + viem chain layer · CI + ruff + coverage gates · depositor docs. All
+tested (139 Python + 16 contract).

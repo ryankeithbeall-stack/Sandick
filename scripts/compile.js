@@ -34,7 +34,16 @@ function compile() {
     settings: {
       optimizer: { enabled: true, runs: 200 },
       evmVersion: "shanghai",
-      outputSelection: { "*": { "*": ["abi", "evm.bytecode.object"] } },
+      outputSelection: {
+        "*": {
+          "*": [
+            "abi",
+            "evm.bytecode.object",
+            "evm.deployedBytecode.object",
+            "evm.deployedBytecode.sourceMap",
+          ],
+        },
+      },
     },
   };
   const out = JSON.parse(solc.compile(JSON.stringify(input), { import: findImport }));
@@ -47,11 +56,33 @@ function compile() {
   for (const file of Object.keys(out.contracts || {})) {
     for (const name of Object.keys(out.contracts[file])) {
       const c = out.contracts[file][name];
-      artifacts[name] = { abi: c.abi, bytecode: "0x" + c.evm.bytecode.object };
+      artifacts[name] = {
+        name,
+        file,
+        abi: c.abi,
+        bytecode: "0x" + c.evm.bytecode.object,
+        deployedBytecode: "0x" + c.evm.deployedBytecode.object,
+        deployedSourceMap: c.evm.deployedBytecode.sourceMap || "",
+      };
     }
   }
+  // id -> { path, content } for every source solc touched. Content is only
+  // loaded for our own contracts (the targets of coverage); third-party
+  // imports (e.g. OpenZeppelin) are left without content and ignored.
+  const srcById = {};
+  for (const [p, meta] of Object.entries(out.sources || {})) {
+    let content = null;
+    if (p.startsWith("contracts/")) {
+      try {
+        content = read(p);
+      } catch (e) {
+        content = null;
+      }
+    }
+    srcById[meta.id] = { path: p, content };
+  }
   const warnings = (out.errors || []).filter((e) => e.severity === "warning");
-  return { artifacts, warnings };
+  return { artifacts, warnings, sources: srcById };
 }
 
 module.exports = { compile };
