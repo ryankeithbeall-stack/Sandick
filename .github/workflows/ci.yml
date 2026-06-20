@@ -41,3 +41,14 @@ jobs:
         run: npm ci
       - name: Run contract tests
         run: npm run test:contracts
+      - name: Contract coverage (gate on total line coverage)
+        env:
+          COVERAGE_MIN: "65"
+        run: npm run coverage:contracts
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: contract-coverage
+          path: coverage/contracts/
+          if-no-files-found: ignore

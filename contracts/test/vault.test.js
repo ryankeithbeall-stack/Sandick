@@ -192,7 +192,11 @@ async function main() {
   console.log(`\n${passed} contract test(s) passed.`);
 }
 
-main().catch((e) => {
-  console.error(e);
-  process.exit(1);
-});
+if (require.main === module) {
+  main().catch((e) => {
+    console.error(e);
+    process.exit(1);
+  });
+}
+
+module.exports = { main };

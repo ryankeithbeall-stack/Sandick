@@ -255,6 +255,9 @@ python -m pytest --cov=sandick --cov-report=term-missing
 
 # Solidity/EVM contract tests (in-process on @ethereumjs/vm):
 npm ci && npm run test:contracts
+
+# Solidity line coverage (instruction-derived; writes coverage/contracts/):
+npm run coverage:contracts
 ```
 
 Both suites run in CI on every push and pull request

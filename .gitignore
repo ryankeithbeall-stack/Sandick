@@ -7,6 +7,7 @@ __pycache__/
 .coverage.*
 htmlcov/
 coverage.xml
+coverage/
 # Node / contracts
 node_modules/
 contracts/out/
