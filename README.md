@@ -198,6 +198,15 @@ config/
 tests/           # pytest suite (run: python -m pytest)
 ```
 
+## On-chain vault (custom, trustless)
+
+A fully on-chain, tokenized vault lives in [`contracts/`](contracts/): an
+ERC-4626 HyperEVM vault that custodies USDC and trades the HIP-3 basket on
+HyperCore via CoreWriter. Depositors get transferable shares; the manager can
+trade but never withdraw funds. The off-chain planner feeds it via
+`sandick.onchain.plan_to_onchain_orders` (HIP-3 asset ids + 1e8-scaled prices).
+See [contracts/README.md](contracts/README.md). **Unaudited — testnet only.**
+
 ## Architecture decisions
 
 - **Vault:** native Hyperliquid vault (~100 USDC to create; leader keeps ≥5%).
