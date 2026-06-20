@@ -194,6 +194,7 @@ sandick/
   deploy_config.py # derive on-chain immutables from live data
   keeper.py      # pure keeper decision logic (liquidity buffer + drift signal)
   keeper_bot.py  # keeper orchestration: read -> act -> verify (KeeperClient seam)
+  keeper_chain.py # live web3 adapter: vault reads + margin precompile + writes
   cli.py         # dry-run CLI + table rendering
 config/
   sandick.basket.json
@@ -231,6 +232,34 @@ RPC_URL=... PRIVATE_KEY=... VAULT_OWNER=0x... VAULT_MANAGER=0x... USDC_ADDRESS=0
 
 `deploy_config` computes the Trade.xyz `perpDexIndex`, each coin's HIP-3 asset id,
 USDC's system address / token index, and the EVM↔Core `coreScale`.
+
+## Keeper bot (testnet-first)
+
+The keeper keeps the live vault healthy between manual interventions: it bridges
+USDC back from Core to cover queued redemptions + a buffer, and submits delta
+orders when basket weights drift. Decision logic is pure (`keeper.py`);
+orchestration (`keeper_bot.py`) reads → acts → **verifies by re-reading**
+(CoreWriter can fail silently); the live wiring is `keeper_chain.py`.
+
+```python
+from sandick.keeper_bot import KeeperBot, run_loop
+from sandick.keeper_chain import Web3KeeperClient, HyperliquidMarketData
+
+client = Web3KeeperClient.from_endpoint(
+    rpc_url="https://rpc.hyperliquid-testnet.xyz/evm",
+    vault_address="0x…", usdc_address="0x…",
+    private_key=os.environ["MANAGER_KEY"],          # the vault manager key
+    market_data=HyperliquidMarketData("0x…vault", coins=[...], dex="tradexyz"),
+)
+bot = KeeperBot(
+    client=client, target_weights={...}, sz_decimals={...}, asset_ids={...},
+    dry_run=True,                                    # flip to False to transmit
+)
+run_loop(bot, interval=60)                           # tick() forever
+```
+
+`dry_run=True` (the default) plans and logs but never sends — flip it only after
+testnet sign-off. Install the adapter deps with `pip install -e ".[keeper,live]"`.
 
 ## Roadmap
 

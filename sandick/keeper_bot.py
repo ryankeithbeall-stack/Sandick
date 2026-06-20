@@ -16,8 +16,10 @@ exercised by the unit tests.
 
 from __future__ import annotations
 
+import itertools
+import time
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Protocol
+from typing import Callable, Dict, List, Optional, Protocol
 
 from .keeper import KeeperConfig, needs_rebalance, plan_liquidity, weights_from_positions
 from .onchain import OnchainOrder
@@ -235,3 +237,37 @@ class KeeperBot:
             if not needs_rebalance(w, self.target_weights, self.config):
                 return True
         return False
+
+
+# ──────────────────────────────────────────────────────────────────────────
+#  Loop runner
+# ──────────────────────────────────────────────────────────────────────────
+def run_loop(
+    bot: KeeperBot,
+    interval: float = 60.0,
+    max_ticks: Optional[int] = None,
+    sleep: Callable[[float], None] = time.sleep,
+    on_report: Optional[Callable[[KeeperReport], None]] = None,
+) -> List[KeeperReport]:
+    """Run ``bot.tick()`` on a fixed interval.
+
+    Sleeps ``interval`` seconds *between* ticks (never after the last one). With
+    ``max_ticks=None`` it runs forever (production); pass an integer to bound it
+    (tests/back-tests). ``sleep`` and ``on_report`` are injectable so the loop is
+    testable without real time. Returns the reports collected (bounded runs).
+
+    The bot defaults to dry-run; flip ``bot.dry_run = False`` to let it transmit.
+    """
+    if interval < 0:
+        raise ValueError("interval must be >= 0")
+    reports: List[KeeperReport] = []
+    counter = range(max_ticks) if max_ticks is not None else itertools.count()
+    for i in counter:
+        report = bot.tick()
+        reports.append(report)
+        if on_report is not None:
+            on_report(report)
+        is_last = max_ticks is not None and i == max_ticks - 1
+        if not is_last:
+            sleep(interval)
+    return reports

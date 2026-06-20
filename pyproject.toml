@@ -12,6 +12,9 @@ dependencies = []
 
 [project.optional-dependencies]
 live = ["hyperliquid-python-sdk>=0.24.0"]
+# Keeper bot live adapter: EVM reads/writes against the deployed vault. Pair with
+# `live` for the Hyperliquid market-data (positions/prices) source.
+keeper = ["web3>=6", "eth-account>=0.11"]
 dev = ["pytest>=8.0", "pytest-cov>=5.0", "ruff>=0.5"]
 
 [project.scripts]

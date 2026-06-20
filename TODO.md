@@ -70,13 +70,16 @@ The architecture is simulation-tested only. Prove the live round-trip:
       `OrderCapsUpdated` + OZ `Paused`/`Unpaused`.
 
 ## 5. Operations / keeper 🟠
-- [x] **Manager keeper bot**: pure decision logic in `sandick/keeper.py` plus
-      orchestration in `sandick/keeper_bot.py` (`KeeperBot.tick()` — liquidity
-      bridge-back + drift rebalance, dry-run by default, read→act→verify with
-      retries). Talks to the vault through the `KeeperClient` protocol; tested
-      offline with a fake (12 tests). **Remaining:** the thin real adapter
-      (web3.py against the HyperEVM vault + read precompiles) implementing
-      `KeeperClient`, and a loop/scheduler to run `tick()` on an interval.
+- [x] **Manager keeper bot**: pure decision logic in `sandick/keeper.py`,
+      orchestration in `sandick/keeper_bot.py` (`KeeperBot.tick()` + `run_loop`
+      scheduler — liquidity bridge-back + drift rebalance, dry-run by default,
+      read→act→verify with retries), and the live web3 adapter
+      `sandick/keeper_chain.py` (`Web3KeeperClient`: vault reads, `core_available`
+      via the margin-summary precompile, manager-signed `bridgeFromCore` /
+      `submitBasket`). All tested offline against a fake web3 (32 tests across
+      both modules). **Remaining (live-only):** verify `HyperliquidMarketData`'s
+      positions parse for a HIP-3 dex on testnet, and run the loop against a node
+      with the manager key (`pip install -e ".[keeper,live]"`).
 - [~] **Verification reads**: `KeeperBot` re-reads idle USDC / position drift
       after each action and flags `UNVERIFIED` when state doesn't move (silent
       CoreWriter failure). Wiring the same confirm-by-read into the (off-chain)
