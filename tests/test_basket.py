@@ -1,15 +1,14 @@
 import pytest
 
-from sandick.basket import Basket, BasketAsset, DEFAULT_BASKET_PATH
+from sandick.basket import DEFAULT_BASKET_PATH, Basket, BasketAsset
 
 
 def test_default_basket_loads_and_spells_sandick():
     basket = Basket.load(DEFAULT_BASKET_PATH)
     assert basket.name == "SANDICK"
     assert len(basket.assets) == 7
-    initials = "".join(a.ticker[0] for a in basket.assets)
-    # S-A-N-D-I-C-K from the tickers' first letters (Kioxia -> ticker 285A
-    # is the odd one out, so check companies instead for the K).
+    # S-A-N-D-I-C-K from the companies' first letters (Kioxia's ticker 285A is
+    # the odd one out, so check company names for the spelling).
     companies_initials = "".join(a.company[0] for a in basket.assets).upper()
     assert companies_initials == "SANDICK"
 

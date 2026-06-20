@@ -17,7 +17,9 @@ python -m http.server 8000 --directory frontend
 |-------------------|-------------------------------------------------------------------|
 | `index.html`      | Page structure: hero, basket, calculator, depositor app, admin.   |
 | `styles.css`      | Dark DeFi theme; accent colors echo the SANDICK letter palette.   |
-| `app.js`          | All logic (see below).                                             |
+| `app.js`          | Demo logic (see below).                                            |
+| `config.js`       | Runtime config; `chain.enabled` gates live mode (off by default). |
+| `chain.js`        | Optional viem layer over the deployed `SandickVault` (ES module). |
 | `assets/sandick.png` | The SANDICK basket image, featured in the hero.                |
 
 ## Sections
@@ -43,7 +45,33 @@ The vault stats, balances, queue and admin actions are a **local demo state
 machine** — there are no chain calls yet. Data (`BASKET`, `EXAMPLE_PRICES`)
 mirrors `config/sandick.basket.json` and `config/prices.example.json`.
 
-To go live, replace the demo handlers with `wagmi`/`viem` calls against the
-HyperEVM `SandickVault` (`deposit`, `requestRedeem`, `claim`, `totalAssets`)
-and read NAV / positions / queue state from the contract + read precompiles —
-the path noted in the root `TODO.md`.
+### Going live
+
+`chain.js` is the start of that wiring: a `viem` layer exposing the vault's
+read/write surface (`totalAssets`, `sharePrice`, `balanceOf`, `convertToAssets`,
+`pendingRedeemShares`, `claimableAssets`, `deposit`, `requestRedeem`, `redeem`,
+`claim`). Enable it by filling in `config.js` and setting `chain.enabled = true`:
+
+```js
+// config.js
+window.SANDICK_CONFIG = { chain: {
+  enabled: true,
+  chainId: 998,
+  rpcUrl: 'https://rpc.hyperliquid-testnet.xyz/evm',
+  vaultAddress: '0x…',   // deployed SandickVault
+  usdcAddress: '0x…',    // vault underlying
+}};
+```
+
+```js
+import { SandickChain } from './chain.js';
+const chain = await SandickChain.connect(window.SANDICK_CONFIG.chain);
+const nav = await chain.totalAssets();
+await chain.approveUsdc(amount);
+await chain.deposit(amount);
+```
+
+It's **off by default** — testnet sign-off (chainid 998) isn't complete, so the
+contract immutables it reads against must be verified first (see root `TODO.md`).
+Because CoreWriter actions settle asynchronously and can fail silently, callers
+must confirm by **re-reading state**, never by trusting a tx receipt.

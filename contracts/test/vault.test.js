@@ -181,6 +181,69 @@ async function main() {
     assert.equal(await vault.call("totalAssets"), 1500n * USDC);
   });
 
+  await test("pause blocks deposits and trading but never blocks exits", async () => {
+    const { usdc, vault } = await fixture();
+    await vault.send(alice, "deposit", [1000n * USDC, a(alice)]);
+    await vault.send(owner, "setAllowedAsset", [7, true]);
+
+    // owner pauses
+    await vault.send(owner, "pause");
+    assert.equal(await vault.call("paused"), true);
+
+    // deposits + manager trading are blocked while paused
+    await assert.rejects(() => vault.send(bob, "deposit", [100n * USDC, a(bob)]));
+    await assert.rejects(() => vault.send(manager, "bridgeToCore", [100n * USDC]));
+    await assert.rejects(() =>
+      vault.send(manager, "submitBasket", [[[7, true, 100n, 100n, false]]])
+    );
+
+    // exits stay open: alice can still withdraw her funds
+    const shares = await vault.call("balanceOf", [a(alice)]);
+    await vault.send(alice, "redeem", [shares, a(alice), a(alice)]);
+    assert.equal(await usdc.call("balanceOf", [a(alice)]), 1_000_000n * USDC);
+
+    // non-owner cannot pause/unpause; owner can resume
+    await assert.rejects(() => vault.send(alice, "unpause"));
+    await vault.send(owner, "unpause");
+    assert.equal(await vault.call("paused"), false);
+    await vault.send(bob, "deposit", [100n * USDC, a(bob)]); // works again
+  });
+
+  await test("per-order notional cap rejects oversized legs", async () => {
+    const { vault } = await fixture();
+    await vault.send(owner, "setAllowedAsset", [7, true]);
+    // cap a single leg's raw notional (limitPx * sz) at 1e12
+    await vault.send(owner, "setOrderCaps", [1_000_000_000_000n, 0n, 0n]);
+
+    // 200 * 100 = 20_000 <= cap -> ok
+    await vault.send(manager, "submitBasket", [[[7, true, 200n, 100n, false]]]);
+    assert.equal(await vault.call("submittedCount"), 1n);
+
+    // 2e6 * 1e6 = 2e12 > cap -> revert, count unchanged
+    await assert.rejects(() =>
+      vault.send(manager, "submitBasket", [[[7, true, 2_000_000n, 1_000_000n, false]]])
+    );
+    assert.equal(await vault.call("submittedCount"), 1n);
+  });
+
+  await test("per-epoch notional cap accumulates and resets", async () => {
+    const { vault } = await fixture();
+    await vault.send(owner, "setAllowedAsset", [7, true]);
+    // no per-order cap; epoch cap 1500 over a 1000s window
+    await vault.send(owner, "setOrderCaps", [0n, 1500n, 1000n]);
+
+    await vault.send(manager, "submitBasket", [[[7, true, 100n, 10n, false]]]); // 1000 used
+    assert.equal(await vault.call("epochNotionalUsed"), 1000n);
+
+    // another 1000 would total 2000 > 1500 -> revert
+    await assert.rejects(() =>
+      vault.send(manager, "submitBasket", [[[7, true, 100n, 10n, false]]])
+    );
+    // a 400 leg fits (1400 <= 1500)
+    await vault.send(manager, "submitBasket", [[[7, true, 100n, 4n, false]]]);
+    assert.equal(await vault.call("epochNotionalUsed"), 1400n);
+  });
+
   await test("manager has no path to extract funds", async () => {
     const names = artifacts.MockSandickVault.abi
       .filter((x) => x.type === "function")

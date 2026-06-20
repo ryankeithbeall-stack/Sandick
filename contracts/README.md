@@ -77,14 +77,33 @@ funds are available (not the remaining holders). Reserved assets are excluded
 from NAV and protected from sync withdrawals. Fulfillment being permissionless
 means the manager can never block an exit once liquidity is present.
 
+## Owner controls (defense in depth)
+
+The owner holds bounded, trust-minimized levers — none can seize deposits or
+block exits:
+
+- **Pause** (`pause`/`unpause`) — halts deposits/mints and manager trading
+  (`submitBasket`, `bridgeToCore`). Exits (withdraw, redeem, the async queue,
+  `claim`, `bridgeFromCore`) stay open, so a pause can never trap funds.
+- **Order notional caps** (`setOrderCaps`) — bound the raw notional
+  (`limitPx * sz`) of any single order leg and the cumulative notional submitted
+  within a rolling epoch, limiting how hard a compromised manager key can churn
+  the book before rotation/pause. A cap of 0 disables that check.
+- **Manager rotation** (`setManager`) and **allow-list** (`setAllowedAsset`).
+
+NAV (`totalAssets`) also counts USDC sitting in the Core **spot** account
+mid-bridge via the `_coreSpotUsd()` hook (default 0; override wires the
+spot-balance precompile), keeping share price continuous across the bridge.
+
 ## Build & test (no Foundry required)
 
 ```bash
 npm install
-npm run compile        # solc compile-check (28 contracts)
-npm run test:contracts # in-process EVM tests (ethereumjs) — 7 passing
+npm run compile        # solc compile-check
+npm run test:contracts # in-process EVM tests (ethereumjs) — 15 passing
 ```
 
 Tests run the real compiled bytecode on `@ethereumjs/vm`: deposits/shares,
-NAV after bridging, withdrawal liquidity caps, PnL → share price, and the
-trade-only manager restrictions.
+NAV after bridging, withdrawal liquidity caps, PnL → share price, the trade-only
+manager restrictions, the async redemption queue, and the new pause + order-cap
+controls.
