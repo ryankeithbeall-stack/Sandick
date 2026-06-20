@@ -77,9 +77,12 @@ The architecture is simulation-tested only. Prove the live round-trip:
       `sandick/keeper_chain.py` (`Web3KeeperClient`: vault reads, `core_available`
       via the margin-summary precompile, manager-signed `bridgeFromCore` /
       `submitBasket`). All tested offline against a fake web3 (32 tests across
-      both modules). **Remaining (live-only):** verify `HyperliquidMarketData`'s
-      positions parse for a HIP-3 dex on testnet, and run the loop against a node
-      with the manager key (`pip install -e ".[keeper,live]"`).
+      both modules) plus an operator CLI `sandick/keeper_cli.py` (`sandick-keeper`:
+      assembles weights/sizes from the basket + `assetId`s from `deploy.json`,
+      preview-by-default, `--execute` to transmit). **Remaining (live-only):**
+      verify `HyperliquidMarketData`'s positions parse for a HIP-3 dex on testnet,
+      and run the loop against a node with the manager key
+      (`pip install -e ".[keeper,live]"`).
 - [~] **Verification reads**: `KeeperBot` re-reads idle USDC / position drift
       after each action and flags `UNVERIFIED` when state doesn't move (silent
       CoreWriter failure). Wiring the same confirm-by-read into the (off-chain)
