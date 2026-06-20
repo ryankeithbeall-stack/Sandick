@@ -6,6 +6,7 @@
   "scripts": {
     "compile": "node scripts/compile_contracts.js",
     "test:contracts": "node contracts/test/vault.test.js",
+    "coverage:contracts": "node scripts/coverage_run.js",
     "deploy": "node scripts/deploy.js"
   },
   "dependencies": {

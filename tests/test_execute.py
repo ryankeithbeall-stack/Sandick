@@ -1,9 +1,12 @@
 import pytest
 
+import sandick.execute as execute_mod
 from sandick.allocator import build_plan
 from sandick.basket import Basket
 from sandick.execute import (
+    Credentials,
     ExecConfig,
+    OrderIntent,
     check_safety,
     marketable_limit,
     order_coin,
@@ -81,3 +84,113 @@ def test_submit_preview_is_noop_without_confirm():
     # confirm defaults to False -> must not touch the network / require creds
     results = submit(intents, ExecConfig())
     assert all(r["status"] == "preview" for r in results)
+
+
+# ---- price/slippage edge cases -----------------------------------------
+
+@pytest.mark.parametrize("bad_px", [0.0, -5.0])
+def test_round_price_perp_rejects_non_positive(bad_px):
+    with pytest.raises(ValueError):
+        round_price_perp(bad_px, 2)
+
+
+def test_marketable_limit_rejects_negative_slippage():
+    with pytest.raises(ValueError):
+        marketable_limit(100.0, "long", -0.01, 2)
+
+
+def test_plan_to_intents_skips_zero_size_legs():
+    # Capital too small for INTC at its 1dp size -> that leg rounds to zero.
+    plan = build_plan(_basket(), PRICES, capital=1.0)
+    intents = plan_to_intents(plan)
+    assert all(i.size > 0 for i in intents)
+
+
+def test_plan_to_intents_clamps_leverage_to_at_least_one():
+    plan = build_plan(_basket(), PRICES, capital=1000.0, leverage=1.0)
+    intents = plan_to_intents(plan)
+    assert all(i.leverage >= 1 for i in intents)
+
+
+# ---- credentials --------------------------------------------------------
+
+def test_credentials_from_env_reads_all_fields(monkeypatch):
+    monkeypatch.setenv("HL_SECRET_KEY", "0xdeadbeef")
+    monkeypatch.setenv("HL_VAULT_ADDRESS", "0xvault")
+    monkeypatch.setenv("HL_ACCOUNT_ADDRESS", "0xmaster")
+    creds = Credentials.from_env()
+    assert creds.secret_key == "0xdeadbeef"
+    assert creds.vault_address == "0xvault"
+    assert creds.account_address == "0xmaster"
+
+
+def test_credentials_from_env_account_optional(monkeypatch):
+    monkeypatch.setenv("HL_SECRET_KEY", "0xdeadbeef")
+    monkeypatch.setenv("HL_VAULT_ADDRESS", "0xvault")
+    monkeypatch.delenv("HL_ACCOUNT_ADDRESS", raising=False)
+    assert Credentials.from_env().account_address is None
+
+
+def test_credentials_from_env_requires_secret(monkeypatch):
+    monkeypatch.delenv("HL_SECRET_KEY", raising=False)
+    monkeypatch.setenv("HL_VAULT_ADDRESS", "0xvault")
+    with pytest.raises(EnvironmentError):
+        Credentials.from_env()
+
+
+def test_credentials_from_env_requires_vault(monkeypatch):
+    monkeypatch.setenv("HL_SECRET_KEY", "0xdeadbeef")
+    monkeypatch.delenv("HL_VAULT_ADDRESS", raising=False)
+    with pytest.raises(EnvironmentError):
+        Credentials.from_env()
+
+
+# ---- confirmed submission (SDK boundary faked) -------------------------
+
+class _FakeExchange:
+    def __init__(self):
+        self.leverage_calls = []
+        self.orders = []
+
+    def update_leverage(self, leverage, coin, is_cross):
+        self.leverage_calls.append((leverage, coin, is_cross))
+
+    def order(self, coin, is_buy, size, limit_px, order_type, reduce_only=False):
+        self.orders.append((coin, is_buy, size, limit_px, order_type, reduce_only))
+        return {"status": "ok"}
+
+
+def test_submit_confirmed_sets_leverage_then_orders(monkeypatch):
+    plan = build_plan(_basket(), PRICES, capital=1000.0)
+    intents = plan_to_intents(plan)
+    fake = _FakeExchange()
+    monkeypatch.setattr(execute_mod, "_make_exchange", lambda creds, testnet: fake)
+
+    creds = Credentials(secret_key="k", account_address=None, vault_address="0xv")
+    results = submit(intents, ExecConfig(confirm=True), creds=creds)
+
+    assert len(results) == len(intents)
+    # leverage is set before each order, once per leg
+    assert len(fake.leverage_calls) == len(intents)
+    assert len(fake.orders) == len(intents)
+    # marketable-limit IOC, never reduce-only
+    assert all(o[4] == {"limit": {"tif": "Ioc"}} for o in fake.orders)
+    assert all(o[5] is False for o in fake.orders)
+
+
+def test_submit_confirmed_enforces_max_notional_before_sending(monkeypatch):
+    plan = build_plan(_basket(), PRICES, capital=1000.0)
+    intents = plan_to_intents(plan)
+
+    def boom(*a, **k):
+        raise AssertionError("must not build an exchange when safety fails")
+
+    monkeypatch.setattr(execute_mod, "_make_exchange", boom)
+    creds = Credentials(secret_key="k", account_address=None, vault_address="0xv")
+    with pytest.raises(ValueError):
+        submit(intents, ExecConfig(confirm=True, max_notional=1.0), creds=creds)
+
+
+def test_submit_rejects_empty_intents():
+    with pytest.raises(ValueError):
+        submit([], ExecConfig(confirm=True))

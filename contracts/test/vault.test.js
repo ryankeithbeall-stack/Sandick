@@ -102,6 +102,26 @@ async function main() {
     assert.equal(await vault.call("submittedCount"), 1n);
   });
 
+  await test("owner can rotate the manager; trading rights follow", async () => {
+    const { vault } = await fixture();
+    assert.equal(a(await vault.call("manager")), a(manager));
+
+    // only the owner may rotate, and never to the zero address
+    const ZERO = "0x" + "00".repeat(20);
+    await assert.rejects(() => vault.send(alice, "setManager", [a(bob)]));
+    await assert.rejects(() => vault.send(owner, "setManager", [ZERO]));
+
+    await vault.send(owner, "setManager", [a(bob)]);
+    assert.equal(a(await vault.call("manager")), a(bob));
+
+    // trading rights move with the role: new manager in, old manager out
+    const order = [7, true, 5_000_000_000n, 100_000_000n, false];
+    await vault.send(owner, "setAllowedAsset", [7, true]);
+    await assert.rejects(() => vault.send(manager, "submitBasket", [[order]]));
+    await vault.send(bob, "submitBasket", [[order]]);
+    assert.equal(await vault.call("submittedCount"), 1n);
+  });
+
   await test("async redeem: request -> bridge -> fulfill (permissionless) -> claim", async () => {
     const { usdc, vault } = await fixture();
     await vault.send(alice, "deposit", [1000n * USDC, a(alice)]);
@@ -192,7 +212,11 @@ async function main() {
   console.log(`\n${passed} contract test(s) passed.`);
 }
 
-main().catch((e) => {
-  console.error(e);
-  process.exit(1);
-});
+if (require.main === module) {
+  main().catch((e) => {
+    console.error(e);
+    process.exit(1);
+  });
+}
+
+module.exports = { main };

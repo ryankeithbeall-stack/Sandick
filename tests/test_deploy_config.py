@@ -1,11 +1,29 @@
+import json
+
 import pytest
 
+from sandick.basket import Basket
 from sandick.deploy_config import (
     asset_ids_for,
+    build_deploy_config,
     core_scale,
     find_perp_dex_index,
     usdc_system_address,
+    write_deploy_config,
 )
+
+
+def _basket():
+    return Basket.from_dict(
+        {
+            "name": "SANDICK",
+            "dex": "tradexyz",
+            "assets": [
+                {"company": "S", "ticker": "SNDK", "coin": "SNDK", "sz_decimals": 2},
+                {"company": "I", "ticker": "INTC", "coin": "INTC", "sz_decimals": 1},
+            ],
+        }
+    )
 
 
 def test_usdc_system_address_format():
@@ -39,3 +57,62 @@ def test_find_perp_dex_index_by_name_and_deployer():
     assert find_perp_dex_index(dexs, deployer="0xdef") == 2
     with pytest.raises(KeyError):
         find_perp_dex_index(dexs, name="missing")
+
+
+def test_usdc_system_address_rejects_negative():
+    with pytest.raises(ValueError):
+        usdc_system_address(-1)
+
+
+def test_build_deploy_config_assembles_from_live_data(install_hyperliquid):
+    install_hyperliquid(
+        perp_dexs=[None, {"name": "tradexyz", "deployer": "0xabc"}],
+        meta={"universe": [{"name": "SNDK"}, {"name": "INTC"}]},
+        spot_meta={"tokens": [{"name": "USDC", "index": 0, "weiDecimals": 8}]},
+    )
+    cfg = build_deploy_config(_basket(), testnet=True)
+    assert cfg["network"] == "testnet"
+    assert cfg["basket"] == "SANDICK"
+    assert cfg["dex"] == "tradexyz"
+    assert cfg["perpDexIndex"] == 1
+    assert cfg["assetIds"] == {"SNDK": 110000, "INTC": 110001}
+    assert cfg["usdcCoreTokenIndex"] == 0
+    assert cfg["coreScale"] == 100  # weiDecimals 8 - evm 6
+    assert cfg["tif"] == 3
+
+
+def test_write_deploy_config_roundtrips(tmp_path):
+    cfg = {"network": "testnet", "perpDexIndex": 1, "assetIds": {"SNDK": 110000}}
+    out = tmp_path / "deploy.json"
+    write_deploy_config(cfg, str(out))
+    assert json.loads(out.read_text()) == cfg
+    assert out.read_text().endswith("\n")
+
+
+def test_main_writes_config_from_live_data(tmp_path, capsys, install_hyperliquid):
+    from sandick.deploy_config import _main
+
+    basket_path = tmp_path / "basket.json"
+    basket_path.write_text(
+        json.dumps(
+            {
+                "name": "SANDICK",
+                "dex": "tradexyz",
+                "assets": [
+                    {"company": "S", "ticker": "SNDK", "coin": "SNDK", "sz_decimals": 2},
+                ],
+            }
+        )
+    )
+    install_hyperliquid(
+        perp_dexs=[None, {"name": "tradexyz", "deployer": "0xabc"}],
+        meta={"universe": [{"name": "SNDK"}]},
+        spot_meta={"tokens": [{"name": "USDC", "index": 0, "weiDecimals": 8}]},
+    )
+    out = tmp_path / "deploy.json"
+    rc = _main(["--basket", str(basket_path), "--out", str(out)])
+    assert rc == 0
+    cfg = json.loads(out.read_text())
+    assert cfg["perpDexIndex"] == 1
+    assert cfg["assetIds"] == {"SNDK": 110000}
+    assert "Wrote" in capsys.readouterr().out

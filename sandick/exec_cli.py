@@ -37,7 +37,7 @@ from .prices import fetch_live_prices, load_prices_file
 
 def _resolve_prices(basket: Basket, args):
     if args.live:
-        return fetch_live_prices(basket.coins, dex=basket.dex, mainnet=not args.testnet)
+        return fetch_live_prices(basket.coins, dex=basket.dex, mainnet=args.mainnet)
     if args.prices:
         return load_prices_file(args.prices)
     raise ValueError("provide --prices <file> or --live")
