@@ -1,12 +1,20 @@
-"""Equal-weighted position sizing for a HIP-3 basket vault.
+"""Position sizing for a HIP-3 basket vault.
 
-Given a capital amount (USDC used as margin), a leverage multiple and a set of
-mark prices, this computes the orders needed to hold an *equal-weighted*
-position across every asset in the basket: each asset gets the same fraction of
-the gross notional (1 / N).
+Given capital (USDC margin), a leverage default and mark prices, this computes
+the orders needed to hold the basket at its target weights. Weights come from
+the basket config (equal / explicit / grouped — see ``weights.py``); leverage
+can be overridden per asset.
 
-This module is pure arithmetic and has no network or SDK dependency, so it is
-trivially unit-testable and safe to run anywhere. Nothing here places orders.
+Sizing math, where ``wᵢ`` is asset i's target weight and ``Lᵢ`` its leverage::
+
+    gross_notional   = capital / Σ(wᵢ / Lᵢ)      # so Σ marginᵢ == capital
+    target_notionalᵢ = wᵢ * gross_notional
+    sizeᵢ            = floor(target_notionalᵢ / priceᵢ, sz_decimalsᵢ)
+    marginᵢ          = sizeᵢ * priceᵢ / Lᵢ
+
+With a single leverage L this reduces to ``gross_notional = capital * L``.
+
+This module is pure arithmetic — no network, no SDK. Nothing here places orders.
 """
 
 from __future__ import annotations
@@ -16,6 +24,7 @@ from dataclasses import dataclass
 from typing import Dict, List
 
 from .basket import Basket, BasketAsset
+from .weights import resolve_weights
 
 
 def round_size(raw_size: float, sz_decimals: int) -> float:
@@ -28,12 +37,13 @@ def round_size(raw_size: float, sz_decimals: int) -> float:
 
 @dataclass(frozen=True)
 class PlannedOrder:
-    """A single equal-weight order in the plan (not yet sent anywhere)."""
+    """A single order in the plan (not yet sent anywhere)."""
 
     asset: BasketAsset
-    side: str  # "long" or "short"
+    side: str                   # "long" or "short"
     price: float
-    target_weight: float        # intended fraction of gross notional (1/N)
+    leverage: float             # effective leverage for this asset
+    target_weight: float        # intended fraction of gross notional
     target_notional: float      # gross notional we aimed to deploy on this asset
     size: float                 # rounded contract size
     notional: float             # size * price (actual)
@@ -43,12 +53,12 @@ class PlannedOrder:
 
 @dataclass(frozen=True)
 class AllocationPlan:
-    """The full equal-weighted plan for a basket."""
+    """The full allocation plan for a basket."""
 
     basket: Basket
     side: str
     capital: float
-    leverage: float
+    leverage: float             # the default/global leverage
     orders: List[PlannedOrder]
 
     @property
@@ -65,20 +75,20 @@ class AllocationPlan:
         return self.capital - self.deployed_margin
 
 
-def build_equal_weight_plan(
+def build_plan(
     basket: Basket,
     prices: Dict[str, float],
     capital: float,
     leverage: float = 1.0,
     side: str = "long",
 ) -> AllocationPlan:
-    """Build an equal-weighted allocation plan.
+    """Build an allocation plan honoring the basket's weights and leverage.
 
     Args:
         basket: the basket of assets to size.
         prices: mark price per coin symbol (must cover every basket coin).
         capital: margin capital in USDC to deploy.
-        leverage: gross-notional / capital multiple (1.0 = no leverage).
+        leverage: default leverage; per-asset ``leverage`` overrides it.
         side: "long" or "short" for every leg.
     """
     if capital <= 0:
@@ -95,28 +105,45 @@ def build_equal_weight_plan(
     if bad:
         raise ValueError(f"Non-positive prices for: {bad}")
 
-    n = len(basket.assets)
-    target_weight = 1.0 / n
-    gross_notional = capital * leverage
-    per_asset_notional = gross_notional / n
+    weights = resolve_weights(basket)
+
+    def lev_for(asset: BasketAsset) -> float:
+        lv = asset.leverage if asset.leverage is not None else leverage
+        if lv <= 0:
+            raise ValueError(f"leverage for {asset.coin} must be > 0")
+        if asset.max_leverage is not None and lv > asset.max_leverage:
+            raise ValueError(
+                f"leverage {lv:g}x for {asset.coin} exceeds exchange max "
+                f"{asset.max_leverage}x"
+            )
+        return lv
+
+    levs = {a.coin: lev_for(a) for a in basket.assets}
+
+    # gross_notional chosen so that the margin across all legs sums to capital.
+    denom = sum(weights[a.coin] / levs[a.coin] for a in basket.assets)
+    gross_notional = capital / denom
 
     orders: List[PlannedOrder] = []
     for asset in basket.assets:
         price = float(prices[asset.coin])
-        raw_size = per_asset_notional / price
-        size = round_size(raw_size, asset.sz_decimals)
+        w = weights[asset.coin]
+        lv = levs[asset.coin]
+        target_notional = w * gross_notional
+        size = round_size(target_notional / price, asset.sz_decimals)
         notional = size * price
         orders.append(
             PlannedOrder(
                 asset=asset,
                 side=side,
                 price=price,
-                target_weight=target_weight,
-                target_notional=per_asset_notional,
+                leverage=lv,
+                target_weight=w,
+                target_notional=target_notional,
                 size=size,
                 notional=notional,
-                margin=notional / leverage,
-                actual_weight=0.0,  # filled in below once totals are known
+                margin=notional / lv,
+                actual_weight=0.0,  # filled below once totals are known
             )
         )
 
@@ -126,6 +153,7 @@ def build_equal_weight_plan(
             asset=o.asset,
             side=o.side,
             price=o.price,
+            leverage=o.leverage,
             target_weight=o.target_weight,
             target_notional=o.target_notional,
             size=o.size,
@@ -143,3 +171,8 @@ def build_equal_weight_plan(
         leverage=leverage,
         orders=orders,
     )
+
+
+# Backwards-compatible alias: the plan is equal-weight unless the basket says
+# otherwise.
+build_equal_weight_plan = build_plan

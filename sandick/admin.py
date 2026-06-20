@@ -93,20 +93,53 @@ def resolve_selection(
     return resolved
 
 
-def basket_dict_from_assets(assets: List[AssetInfo], name: str, dex: str) -> dict:
-    return {
-        "name": name,
-        "dex": dex,
-        "assets": [
-            {
-                "company": a.coin,  # admin can edit display names later
-                "ticker": a.coin,
-                "coin": a.coin,
-                "sz_decimals": a.sz_decimals,
-            }
-            for a in assets
-        ],
-    }
+def parse_kv(spec: str | None) -> Dict[str, str]:
+    """Parse a 'k=v,k=v' string into a dict (empty for None/'')."""
+    out: Dict[str, str] = {}
+    for pair in (spec or "").split(","):
+        pair = pair.strip()
+        if not pair:
+            continue
+        if "=" not in pair:
+            raise ValueError(f"expected 'key=value', got {pair!r}")
+        k, v = pair.split("=", 1)
+        out[k.strip()] = v.strip()
+    return out
+
+
+def basket_dict_from_assets(
+    assets: List[AssetInfo],
+    name: str,
+    dex: str,
+    weights: Dict[str, str] | None = None,
+    groups: Dict[str, str] | None = None,
+    labels: Dict[str, str] | None = None,
+    group_weights: Dict[str, str] | None = None,
+) -> dict:
+    weights = weights or {}
+    groups = groups or {}
+    labels = labels or {}
+
+    asset_dicts = []
+    for a in assets:
+        entry = {
+            "company": labels.get(a.coin, a.coin),
+            "ticker": a.coin,
+            "coin": a.coin,
+            "sz_decimals": a.sz_decimals,
+        }
+        if a.max_leverage is not None:
+            entry["max_leverage"] = a.max_leverage
+        if a.coin in weights:
+            entry["weight"] = float(weights[a.coin])
+        if a.coin in groups:
+            entry["group"] = groups[a.coin]
+        asset_dicts.append(entry)
+
+    basket: dict = {"name": name, "dex": dex, "assets": asset_dicts}
+    if group_weights:
+        basket["groups"] = {k: float(v) for k, v in group_weights.items()}
+    return basket
 
 
 def _load_catalog(args) -> Dict[str, List[AssetInfo]]:
@@ -153,11 +186,18 @@ def cmd_build_basket(args) -> int:
 
     try:
         assets = resolve_selection(catalog, selection, dex_hint=args.dex)
+        basket = basket_dict_from_assets(
+            assets,
+            name=args.name,
+            dex=args.dex or "",
+            weights=parse_kv(args.weights),
+            groups=parse_kv(args.group),
+            labels=parse_kv(args.label),
+            group_weights=parse_kv(args.group_weights),
+        )
     except (KeyError, ValueError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
-
-    basket = basket_dict_from_assets(assets, name=args.name, dex=args.dex or "")
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(basket, indent=2) + "\n")
@@ -183,6 +223,12 @@ def build_arg_parser() -> argparse.ArgumentParser:
     b.add_argument("--out", required=True, help="Output basket JSON path.")
     b.add_argument("--catalog", help="Use a saved catalog snapshot instead of going live.")
     b.add_argument("--testnet", action="store_true")
+    b.add_argument(
+        "--weights", help="Explicit relative weights, e.g. 'SNDK=2,ALAB=1' (default: equal)."
+    )
+    b.add_argument("--group", help="Assign assets to groups, e.g. 'SNDK=storage,CRWV=compute'.")
+    b.add_argument("--group-weights", help="Group relative weights, e.g. 'storage=0.4,compute=0.6'.")
+    b.add_argument("--label", help="Display names, e.g. 'SNDK=SanDisk,CRWV=CoreWeave'.")
     b.set_defaults(func=cmd_build_basket)
     return p
 
