@@ -99,11 +99,25 @@ spot-balance precompile), keeping share price continuous across the bridge.
 
 ```bash
 npm install
-npm run compile        # solc compile-check
-npm run test:contracts # in-process EVM tests (ethereumjs) — 15 passing
+npm run compile             # solc compile-check
+npm run test:contracts      # in-process EVM tests (ethereumjs)
+npm run coverage:contracts  # line coverage report (writes coverage/contracts/)
 ```
 
 Tests run the real compiled bytecode on `@ethereumjs/vm`: deposits/shares,
 NAV after bridging, withdrawal liquidity caps, PnL → share price, the trade-only
-manager restrictions, the async redemption queue, and the new pause + order-cap
-controls.
+manager restrictions, the async redemption queue, and the pause + order-cap
+owner controls.
+
+### Coverage
+
+`npm run coverage:contracts` re-runs the suite with the EVM `step` event hooked,
+maps each executed program counter back to a source line via solc's deployed
+source map, and prints per-file line coverage (writing `coverage.json` +
+`lcov.info` under `coverage/contracts/`). Set `COVERAGE_MIN` to fail under a
+threshold (CI gates the total at 65%).
+
+The report is honest about where the tests stop: the trust/accounting core
+(`SandickVaultBase.sol`) is ~96% covered, but the production HyperCore write-path
+(`SandickVault.sol`, `lib/HyperCoreActions.sol`) is exercised only through mocks
+and stays low until the testnet round-trip lands — see the root `TODO.md`.

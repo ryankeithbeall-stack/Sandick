@@ -2,6 +2,12 @@ __pycache__/
 *.py[cod]
 *.egg-info/
 .pytest_cache/
+# Coverage artifacts
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+coverage/
 # Node / contracts
 node_modules/
 contracts/out/

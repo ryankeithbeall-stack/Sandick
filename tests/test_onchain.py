@@ -21,6 +21,8 @@ def test_hip3_asset_id_validates():
         hip3_asset_id(0, 0)  # builder dex index starts at 1
     with pytest.raises(ValueError):
         hip3_asset_id(1, 10_000)  # outside the per-dex block
+    with pytest.raises(ValueError):
+        hip3_asset_id(1, -1)  # negative index_in_meta
 
 
 def test_to_core_int_scales_1e8():
@@ -58,3 +60,11 @@ def test_plan_to_onchain_orders_missing_id_raises():
     plan = build_plan(_basket(), {"SNDK": 50.0, "INTC": 22.0}, capital=1000.0)
     with pytest.raises(KeyError):
         plan_to_onchain_orders(plan, {"SNDK": 110000}, slippage=0.01)
+
+
+def test_plan_to_onchain_orders_skips_zero_size_legs():
+    # Capital so small that INTC (1dp) rounds to zero size but SNDK (2dp) does not.
+    plan = build_plan(_basket(), {"SNDK": 50.0, "INTC": 22.0}, capital=1.0)
+    ids = {"SNDK": 110000, "INTC": 110001}
+    orders = plan_to_onchain_orders(plan, ids, slippage=0.02)
+    assert {o.asset_id for o in orders} == {110000}  # INTC dropped

@@ -58,3 +58,33 @@ def test_grouped_undefined_group_raises():
 def test_weights_always_sum_to_one():
     b = _basket([_a("A", weight=7), _a("B", weight=11), _a("C", weight=2)])
     assert sum(resolve_weights(b).values()) == pytest.approx(1.0)
+
+
+def test_negative_weight_raises():
+    b = _basket([_a("A", weight=-1), _a("B", weight=2)])
+    with pytest.raises(ValueError):
+        resolve_weights(b)
+
+
+def test_zero_sum_weights_raise():
+    b = _basket([_a("A", weight=0), _a("B", weight=0)])
+    with pytest.raises(ValueError):
+        resolve_weights(b)
+
+
+def test_negative_group_weight_raises():
+    b = _basket(
+        [_a("A", group="x"), _a("B", group="y")],
+        groups={"x": -1.0, "y": 2.0},
+    )
+    with pytest.raises(ValueError):
+        resolve_weights(b)
+
+
+def test_zero_group_total_raises():
+    b = _basket(
+        [_a("A", group="x"), _a("B", group="y")],
+        groups={"x": 0.0, "y": 0.0},
+    )
+    with pytest.raises(ValueError):
+        resolve_weights(b)

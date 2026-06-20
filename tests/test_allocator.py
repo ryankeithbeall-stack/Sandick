@@ -86,3 +86,34 @@ def test_invalid_leverage_raises():
 def test_short_side_supported():
     plan = build_equal_weight_plan(_basket(), _prices(), capital=1000.0, side="short")
     assert all(o.side == "short" for o in plan.orders)
+
+
+def test_round_size_rejects_negative_precision():
+    with pytest.raises(ValueError):
+        round_size(1.0, -1)
+
+
+def test_invalid_side_raises():
+    with pytest.raises(ValueError):
+        build_equal_weight_plan(_basket(), _prices(), capital=1000.0, side="sideways")
+
+
+def test_non_positive_price_raises():
+    prices = _prices()
+    prices["AAA"] = 0.0
+    with pytest.raises(ValueError):
+        build_equal_weight_plan(_basket(), prices, capital=1000.0)
+
+
+def test_per_asset_zero_leverage_raises():
+    b = Basket.from_dict(
+        {
+            "name": "T",
+            "dex": "t",
+            "assets": [
+                {"company": "A", "ticker": "AAA", "coin": "AAA", "sz_decimals": 2, "leverage": 0},
+            ],
+        }
+    )
+    with pytest.raises(ValueError):
+        build_equal_weight_plan(b, {"AAA": 10.0}, capital=1000.0)
