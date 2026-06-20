@@ -6,8 +6,8 @@
 ## What you're depositing into
 
 SANDICK is a tokenized **ERC-4626 vault** on HyperEVM that holds an
-**equal-weighted basket of seven perps** (SanDisk, Astera Labs, Nebius, Dell,
-Intel, CoreWeave, Kioxia — the names whose logos spell **S A N D I C K**),
+**equal-weighted basket of seven perps** (SanDisk, Arm Holdings, Nebius, Dell,
+Intel, CoreWeave, SK Hynix — the names whose logos spell **S A N D I C K**),
 traded as Hyperliquid HIP-3 markets.
 
 You deposit **USDC** and receive **SAND-LP shares**. Your shares are a pro-rata

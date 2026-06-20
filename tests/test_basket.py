@@ -7,10 +7,12 @@ def test_default_basket_loads_and_spells_sandick():
     basket = Basket.load(DEFAULT_BASKET_PATH)
     assert basket.name == "SANDICK"
     assert len(basket.assets) == 7
-    # S-A-N-D-I-C-K from the companies' first letters (Kioxia's ticker 285A is
-    # the odd one out, so check company names for the spelling).
-    companies_initials = "".join(a.company[0] for a in basket.assets).upper()
-    assert companies_initials == "SANDICK"
+    # The seven slots map to the letters S-A-N-D-I-C-K. Most companies' initials
+    # match their letter; the final K slot is SK Hynix (the "SK" brand mark),
+    # which the front end still labels "K".
+    initials = [a.company[0].upper() for a in basket.assets]
+    assert initials[:6] == list("SANDIC")
+    assert basket.assets[6].company == "SK Hynix"
 
 
 def test_duplicate_coins_rejected():

@@ -13,7 +13,7 @@ Examples:
 
     # Build a basket by selecting assets (offline, from the snapshot):
     python -m sandick.admin build-basket \
-        --select SNDK,ALAB,NBIS,DELL,INTC,CRWV,KIOXIA \
+        --select SNDK,ARM,NBIS,DELL,INTC,CRWV,SKHYNIX \
         --dex sandick --name SANDICK \
         --catalog catalog.json --out config/sandick.basket.json
 """
@@ -224,7 +224,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     b.add_argument("--catalog", help="Use a saved catalog snapshot instead of going live.")
     b.add_argument("--testnet", action="store_true")
     b.add_argument(
-        "--weights", help="Explicit relative weights, e.g. 'SNDK=2,ALAB=1' (default: equal)."
+        "--weights", help="Explicit relative weights, e.g. 'SNDK=2,ARM=1' (default: equal)."
     )
     b.add_argument("--group", help="Assign assets to groups, e.g. 'SNDK=storage,CRWV=compute'.")
     b.add_argument("--group-weights", help="Group relative weights, e.g. 'storage=0.4,compute=0.6'.")
