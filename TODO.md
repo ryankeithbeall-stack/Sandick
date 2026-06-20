@@ -22,8 +22,14 @@ yet. Remaining to make it live:
       Core. Gated to the manager/owner address. *(demo state — needs wiring)*
 - [x] **Async-aware UX**: queue models "pending → claimable" on a delay rather
       than trusting an EVM receipt.
-- [ ] **Wire to chain**: replace demo handlers with wagmi/viem calls; read NAV /
-      positions / queue state from the contract + read precompiles.
+- [~] **Wire to chain**: config-gated live mode landed (`frontend/config.js`
+      `chain.enabled`). Depositor path (connect, NAV/share reads, deposit,
+      sync/async redeem, queue, claim), admin gating (manager/owner reads) and
+      the safe admin writes (bridgeToCore/FromCore, pause/unpause, allow-list)
+      now call the deployed vault via `chain.js` (viem). **Remaining:** browser
+      encoding of `submitBasket`/`rebalance` orders — that belongs to the Python
+      planner; the chain hook (`chain.submitBasket(orders)`) is ready to receive
+      its output. Needs a deployed testnet vault to exercise end-to-end.
 - [x] Stack decision (zero-build vanilla today; React + wagmi/viem on HyperEVM
       for the live wiring).
 
@@ -64,11 +70,17 @@ The architecture is simulation-tested only. Prove the live round-trip:
       `OrderCapsUpdated` + OZ `Paused`/`Unpaused`.
 
 ## 5. Operations / keeper 🟠
-- [~] **Manager keeper bot**: pure decision logic landed in `sandick/keeper.py`
-      (idle-buffer / bridge-back sizing + drift-based rebalance signal, tested);
-      the bot wiring (reads, submits, retries) remains.
-- [ ] **Verification reads**: after each CoreWriter submit, confirm fills via
-      read precompiles / API (silent-failure handling), retry/alert on misses.
+- [x] **Manager keeper bot**: pure decision logic in `sandick/keeper.py` plus
+      orchestration in `sandick/keeper_bot.py` (`KeeperBot.tick()` — liquidity
+      bridge-back + drift rebalance, dry-run by default, read→act→verify with
+      retries). Talks to the vault through the `KeeperClient` protocol; tested
+      offline with a fake (12 tests). **Remaining:** the thin real adapter
+      (web3.py against the HyperEVM vault + read precompiles) implementing
+      `KeeperClient`, and a loop/scheduler to run `tick()` on an interval.
+- [~] **Verification reads**: `KeeperBot` re-reads idle USDC / position drift
+      after each action and flags `UNVERIFIED` when state doesn't move (silent
+      CoreWriter failure). Wiring the same confirm-by-read into the (off-chain)
+      `exec_cli` submit path remains.
 - [ ] Monitoring + alerting (NAV drift, failed actions, low buffer, drawdown).
 
 ## 6. Config / data 🟠

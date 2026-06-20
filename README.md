@@ -192,6 +192,8 @@ sandick/
   rebalance.py   # delta orders back to target weight
   onchain.py     # plan -> on-chain submitBasket orders (HIP-3 asset ids, 1e8)
   deploy_config.py # derive on-chain immutables from live data
+  keeper.py      # pure keeper decision logic (liquidity buffer + drift signal)
+  keeper_bot.py  # keeper orchestration: read -> act -> verify (KeeperClient seam)
   cli.py         # dry-run CLI + table rendering
 config/
   sandick.basket.json

@@ -18,8 +18,18 @@
  *   const nav = await chain.totalAssets();
  */
 
+// The Order struct submitBasket expects (mirrors SandickVaultBase.Order).
+const ORDER_COMPONENTS = [
+  { name: 'assetId', type: 'uint32' },
+  { name: 'isBuy', type: 'bool' },
+  { name: 'limitPx', type: 'uint64' },
+  { name: 'sz', type: 'uint64' },
+  { name: 'reduceOnly', type: 'bool' },
+];
+
 // Minimal ABI: only the methods the front end touches.
 export const VAULT_ABI = [
+  // ---- depositor reads ----
   { type: 'function', stateMutability: 'view', name: 'totalAssets', inputs: [], outputs: [{ type: 'uint256' }] },
   { type: 'function', stateMutability: 'view', name: 'totalSupply', inputs: [], outputs: [{ type: 'uint256' }] },
   { type: 'function', stateMutability: 'view', name: 'decimals', inputs: [], outputs: [{ type: 'uint8' }] },
@@ -31,15 +41,32 @@ export const VAULT_ABI = [
   { type: 'function', stateMutability: 'view', name: 'maxRedeem', inputs: [{ type: 'address' }], outputs: [{ type: 'uint256' }] },
   { type: 'function', stateMutability: 'view', name: 'pendingRedeemShares', inputs: [{ type: 'address' }], outputs: [{ type: 'uint256' }] },
   { type: 'function', stateMutability: 'view', name: 'claimableAssets', inputs: [{ type: 'address' }], outputs: [{ type: 'uint256' }] },
+  // ---- role reads (admin gating) ----
+  { type: 'function', stateMutability: 'view', name: 'owner', inputs: [], outputs: [{ type: 'address' }] },
+  { type: 'function', stateMutability: 'view', name: 'manager', inputs: [], outputs: [{ type: 'address' }] },
+  { type: 'function', stateMutability: 'view', name: 'allowedAsset', inputs: [{ type: 'uint32' }], outputs: [{ type: 'bool' }] },
+  // ---- depositor writes ----
   { type: 'function', stateMutability: 'nonpayable', name: 'deposit', inputs: [{ type: 'uint256' }, { type: 'address' }], outputs: [{ type: 'uint256' }] },
   { type: 'function', stateMutability: 'nonpayable', name: 'requestRedeem', inputs: [{ type: 'uint256' }], outputs: [] },
+  { type: 'function', stateMutability: 'nonpayable', name: 'cancelRedeemRequest', inputs: [{ type: 'uint256' }], outputs: [] },
   { type: 'function', stateMutability: 'nonpayable', name: 'redeem', inputs: [{ type: 'uint256' }, { type: 'address' }, { type: 'address' }], outputs: [{ type: 'uint256' }] },
   { type: 'function', stateMutability: 'nonpayable', name: 'claim', inputs: [], outputs: [] },
+  // fulfillRedeem is permissionless once idle liquidity exists (redemption liveness).
+  { type: 'function', stateMutability: 'nonpayable', name: 'fulfillRedeem', inputs: [{ type: 'address' }, { type: 'uint256' }], outputs: [] },
+  // ---- manager writes ----
+  { type: 'function', stateMutability: 'nonpayable', name: 'submitBasket', inputs: [{ type: 'tuple[]', name: 'orders', components: ORDER_COMPONENTS }], outputs: [] },
+  { type: 'function', stateMutability: 'nonpayable', name: 'bridgeToCore', inputs: [{ type: 'uint256' }], outputs: [] },
+  { type: 'function', stateMutability: 'nonpayable', name: 'bridgeFromCore', inputs: [{ type: 'uint256' }], outputs: [] },
+  // ---- owner writes ----
+  { type: 'function', stateMutability: 'nonpayable', name: 'setAllowedAsset', inputs: [{ type: 'uint32' }, { type: 'bool' }], outputs: [] },
+  { type: 'function', stateMutability: 'nonpayable', name: 'pause', inputs: [], outputs: [] },
+  { type: 'function', stateMutability: 'nonpayable', name: 'unpause', inputs: [], outputs: [] },
 ];
 
 export const ERC20_ABI = [
   { type: 'function', stateMutability: 'view', name: 'balanceOf', inputs: [{ type: 'address' }], outputs: [{ type: 'uint256' }] },
   { type: 'function', stateMutability: 'view', name: 'allowance', inputs: [{ type: 'address' }, { type: 'address' }], outputs: [{ type: 'uint256' }] },
+  { type: 'function', stateMutability: 'view', name: 'decimals', inputs: [], outputs: [{ type: 'uint8' }] },
   { type: 'function', stateMutability: 'nonpayable', name: 'approve', inputs: [{ type: 'address' }, { type: 'uint256' }], outputs: [{ type: 'bool' }] },
 ];
 
@@ -89,12 +116,52 @@ export class SandickChain {
   convertToAssets(shares) { return this._read('convertToAssets', [shares]); }
   pendingRedeemShares(addr) { return this._read('pendingRedeemShares', [addr]); }
   claimableAssets(addr) { return this._read('claimableAssets', [addr]); }
+  owner() { return this._read('owner'); }
+  manager() { return this._read('manager'); }
+  allowedAsset(assetId) { return this._read('allowedAsset', [assetId]); }
+  shareDecimals() { return this._read('decimals'); }
+
+  /** Underlying (USDC) token decimals — usually 6. */
+  usdcDecimals() {
+    return this.publicClient.readContract({
+      address: this.cfg.usdcAddress, abi: ERC20_ABI, functionName: 'decimals', args: [],
+    });
+  }
+
+  /** Connected wallet's USDC balance (raw units). */
+  usdcBalance(addr = this.account) {
+    return this.publicClient.readContract({
+      address: this.cfg.usdcAddress, abi: ERC20_ABI, functionName: 'balanceOf', args: [addr],
+    });
+  }
+
+  /** Current USDC allowance the user has granted the vault (raw units). */
+  usdcAllowance(addr = this.account) {
+    return this.publicClient.readContract({
+      address: this.cfg.usdcAddress, abi: ERC20_ABI, functionName: 'allowance',
+      args: [addr, this.cfg.vaultAddress],
+    });
+  }
 
   /** NAV per share scaled to 1e18 (shares and assets may differ in decimals). */
   async sharePrice() {
     const [assets, supply] = await Promise.all([this.totalAssets(), this.totalSupply()]);
     if (supply === 0n) return 0n;
     return (assets * (10n ** 18n)) / supply;
+  }
+
+  /** True when the connected account is the vault manager (case-insensitive). */
+  async isManager() {
+    if (!this.account) return false;
+    const m = await this.manager();
+    return m.toLowerCase() === this.account.toLowerCase();
+  }
+
+  /** True when the connected account is the vault owner. */
+  async isOwner() {
+    if (!this.account) return false;
+    const o = await this.owner();
+    return o.toLowerCase() === this.account.toLowerCase();
   }
 
   // ---- writes (require a wallet) ----
@@ -118,19 +185,36 @@ export class SandickChain {
     });
   }
 
-  async requestRedeem(shares) {
-    this._assertWallet();
-    return this.walletClient.writeContract({
-      address: this.cfg.vaultAddress, abi: VAULT_ABI, functionName: 'requestRedeem',
-      args: [shares], account: this.account,
-    });
+  /** Synchronous redeem (needs idle liquidity; reverts otherwise — use queue). */
+  async redeem(shares, receiver = this.account, owner = this.account) {
+    return this._write('redeem', [shares, receiver, owner]);
   }
 
-  async claim() {
+  async requestRedeem(shares) { return this._write('requestRedeem', [shares]); }
+  async cancelRedeemRequest(shares) { return this._write('cancelRedeemRequest', [shares]); }
+  async claim() { return this._write('claim', []); }
+
+  /** Permissionless once idle USDC exists: settle another holder's queued request. */
+  async fulfillRedeem(owner, shares) { return this._write('fulfillRedeem', [owner, shares]); }
+
+  // ---- manager writes ----
+  /** Submit basket orders. `orders` = [{ assetId, isBuy, limitPx, sz, reduceOnly }]
+   *  with limitPx/sz already 1e8-scaled (see sandick.onchain.plan_to_onchain_orders).
+   *  CoreWriter settles later and can fail silently — CONFIRM by re-reading NAV /
+   *  positions; do not treat the receipt as success. */
+  async submitBasket(orders) { return this._write('submitBasket', [orders]); }
+  async bridgeToCore(amount) { return this._write('bridgeToCore', [amount]); }
+  async bridgeFromCore(amount) { return this._write('bridgeFromCore', [amount]); }
+
+  // ---- owner writes ----
+  async setAllowedAsset(assetId, ok) { return this._write('setAllowedAsset', [assetId, ok]); }
+  async pause() { return this._write('pause', []); }
+  async unpause() { return this._write('unpause', []); }
+
+  _write(functionName, args) {
     this._assertWallet();
     return this.walletClient.writeContract({
-      address: this.cfg.vaultAddress, abi: VAULT_ABI, functionName: 'claim',
-      args: [], account: this.account,
+      address: this.cfg.vaultAddress, abi: VAULT_ABI, functionName, args, account: this.account,
     });
   }
 }

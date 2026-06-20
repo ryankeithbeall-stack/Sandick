@@ -34,6 +34,13 @@ const EXAMPLE_PRICES = {
 const N = BASKET.assets.length;
 const EQUAL_WEIGHT = 1 / N;
 
+// ── chain mode (config-gated) ───────────────────────────────
+// When window.SANDICK_CONFIG.chain.enabled is true we wire the depositor and
+// admin surfaces to a deployed SandickVault via chain.js; otherwise the app
+// runs the self-contained demo state machine below. See frontend/config.js.
+const CHAIN_CFG = (typeof window !== 'undefined' && window.SANDICK_CONFIG && window.SANDICK_CONFIG.chain) || null;
+const LIVE = !!(CHAIN_CFG && CHAIN_CFG.enabled);
+
 // ── allocation math (port of allocator.build_plan, equal-weight) ──
 function roundSize(rawSize, szDecimals) {
   const factor = 10 ** szDecimals;
@@ -210,6 +217,7 @@ function setConnected(on) {
 
 function wireConnect() {
   $('#connectBtn').addEventListener('click', () => {
+    if (LIVE) return Live.connect();
     setConnected(!state.connected);
     toast(state.connected ? 'Wallet connected (demo)' : 'Wallet disconnected');
   });
@@ -219,9 +227,18 @@ function wireConnect() {
 //  Vault — stats, deposit, redeem, queue
 // ═══════════════════════════════════════════════════════════
 function refreshVault() {
+  // LIVE: kick off async on-chain reads (which update state + re-render when they
+  // land); always paint immediately from current state so the UI stays responsive.
+  if (LIVE) Live.refreshVault();
+  renderVault();
+}
+
+function renderVault() {
   $('#navPerShare').textContent = fmtUsd(state.navPerShare, 4);
-  $('#navDelta').textContent = '+4.27% all-time';
-  $('#navDelta').className = 'stat__d up';
+  // Demo shows a canned all-time delta; live computes it from the genesis 1.0000.
+  const deltaPct = LIVE ? (state.navPerShare - 1) * 100 : 4.27;
+  $('#navDelta').textContent = `${deltaPct >= 0 ? '+' : ''}${deltaPct.toFixed(2)}% all-time`;
+  $('#navDelta').className = 'stat__d ' + (deltaPct >= 0 ? 'up' : 'down');
   $('#totalAssets').textContent = fmtUsd(state.totalAssets, 0);
   $('#shareSupply').textContent = fmtNum(state.shareSupply, 0);
 
@@ -286,6 +303,7 @@ function renderQueue() {
 
 let queueId = 1;
 function deposit() {
+  if (LIVE) return Live.deposit();
   const amt = parseFloat($('#depositAmt').value) || 0;
   if (amt <= 0) return toast('Enter a deposit amount');
   if (amt > state.walletUsdc) return toast('Insufficient USDC balance');
@@ -299,6 +317,7 @@ function deposit() {
 }
 
 function redeemSync() {
+  if (LIVE) return Live.redeemSync();
   const shares = parseFloat($('#redeemAmt').value) || 0;
   if (shares <= 0) return toast('Enter shares to redeem');
   if (shares > state.yourShares) return toast('You don’t hold that many shares');
@@ -313,6 +332,7 @@ function redeemSync() {
 }
 
 function requestRedeem() {
+  if (LIVE) return Live.requestRedeem();
   const shares = parseFloat($('#redeemAmt').value) || 0;
   if (shares <= 0) return toast('Enter shares to redeem');
   if (shares > state.yourShares) return toast('You don’t hold that many shares');
@@ -331,6 +351,7 @@ function requestRedeem() {
 }
 
 function claim(id) {
+  if (LIVE) return Live.claim();
   const idx = state.queue.findIndex((x) => x.id === id);
   if (idx === -1) return;
   const q = state.queue[idx];
@@ -397,6 +418,7 @@ const ADMIN_ACTIONS = {
 
 function wireAdmin() {
   $('#adminUnlock').addEventListener('click', () => {
+    if (LIVE) return Live.unlockAdmin();
     if (!state.connected) setConnected(true);
     state.isManager = true;
     refreshAdmin();
@@ -404,8 +426,188 @@ function wireAdmin() {
     adminLog('Authenticated as vault manager.', true);
   });
   $$('[data-admin]').forEach((b) =>
-    b.addEventListener('click', () => ADMIN_ACTIONS[b.dataset.admin]?.()));
+    b.addEventListener('click', () => {
+      const action = b.dataset.admin;
+      if (LIVE) return Live.admin(action);
+      ADMIN_ACTIONS[action]?.();
+    }));
 }
+
+// ═══════════════════════════════════════════════════════════
+//  Live chain mode — wires the demo handlers to a deployed vault (chain.js)
+// ═══════════════════════════════════════════════════════════
+let chain = null;                       // SandickChain instance (lazy)
+const dec = { asset: 6, share: 18 };    // token decimals, read on connect
+
+const toNum = (bi, d) => Number(bi) / 10 ** d;       // raw units -> human (display)
+const toUnits = (human, d) => chain.viem.parseUnits(String(human), d);  // human -> raw
+
+const Live = {
+  /** Import + connect clients once; reads token decimals. Safe to call repeatedly. */
+  async ensure() {
+    if (chain) return chain;
+    const mod = await import('./chain.js');
+    chain = await mod.SandickChain.connect(CHAIN_CFG);
+    [dec.asset, dec.share] = await Promise.all([chain.usdcDecimals(), chain.shareDecimals()]);
+    return chain;
+  },
+
+  async init() {
+    try {
+      await Live.ensure();
+      if (chain.account) await Live._afterConnect(false);
+    } catch (e) {
+      toast('Chain unavailable — check config.js (' + e.message + ')');
+    }
+    refreshVault();
+  },
+
+  async connect() {
+    try {
+      await Live.ensure();
+      if (!chain.account) return toast('No wallet found (install a browser wallet)');
+      await Live._afterConnect(true);
+    } catch (e) {
+      toast('Connect failed: ' + e.message);
+    }
+  },
+
+  async _afterConnect(announce) {
+    state.connected = true;
+    const a = chain.account;
+    $('#connectBtn').classList.add('is-connected');
+    $('#connectLabel').textContent = a.slice(0, 5) + '…' + a.slice(-4);
+    if (announce) toast('Wallet connected');
+    await Live.refreshVault();
+  },
+
+  async refreshVault() {
+    if (!chain) return;
+    try {
+      const [assets, supply] = await Promise.all([chain.totalAssets(), chain.totalSupply()]);
+      state.totalAssets = toNum(assets, dec.asset);
+      state.shareSupply = toNum(supply, dec.share);
+      state.navPerShare = state.shareSupply > 0 ? state.totalAssets / state.shareSupply : 1;
+
+      if (chain.account) {
+        const [bal, usdc, pending, claimable] = await Promise.all([
+          chain.balanceOf(chain.account),
+          chain.usdcBalance(),
+          chain.pendingRedeemShares(chain.account),
+          chain.claimableAssets(chain.account),
+        ]);
+        state.yourShares = toNum(bal, dec.share);
+        state.walletUsdc = toNum(usdc, dec.asset);
+        state.queue = Live._queue(pending, claimable);
+      }
+    } catch (e) {
+      toast('Read failed: ' + e.message);
+    }
+    renderVault();
+  },
+
+  /** Map the contract's per-account pending/claimable into the demo queue shape. */
+  _queue(pending, claimable) {
+    const q = [];
+    const p = toNum(pending, dec.share);
+    const c = toNum(claimable, dec.asset);
+    if (p > 0) q.push({ id: 'pending', shares: p, status: 'pending' });
+    if (c > 0) q.push({ id: 'claim', shares: c / (state.navPerShare || 1), status: 'claimable' });
+    return q;
+  },
+
+  async _send(label, fn, { coreAction = false } = {}) {
+    try {
+      const hash = await fn();
+      toast(`${label} sent…`);
+      await chain.publicClient.waitForTransactionReceipt({ hash });
+      // CoreWriter actions settle on later blocks and can fail silently — the
+      // receipt only proves the EVM call, so we re-read state to reflect reality.
+      if (coreAction) toast(`${label} mined — confirm via reads (Core settles later)`);
+      else toast(`${label} confirmed`);
+      await Live.refreshVault();
+      return hash;
+    } catch (e) {
+      toast(`${label} failed: ${e.shortMessage || e.message}`);
+      throw e;
+    }
+  },
+
+  async deposit() {
+    const amt = parseFloat($('#depositAmt').value) || 0;
+    if (amt <= 0) return toast('Enter a deposit amount');
+    const units = toUnits(amt, dec.asset);
+    const allowance = await chain.usdcAllowance();
+    if (allowance < units) {
+      await Live._send('Approve', () => chain.approveUsdc(units));
+    }
+    await Live._send('Deposit', () => chain.deposit(units));
+  },
+
+  async redeemSync() {
+    const shares = parseFloat($('#redeemAmt').value) || 0;
+    if (shares <= 0) return toast('Enter shares to redeem');
+    await Live._send('Redeem', () => chain.redeem(toUnits(shares, dec.share)));
+    $('#redeemAmt').value = 0;
+  },
+
+  async requestRedeem() {
+    const shares = parseFloat($('#redeemAmt').value) || 0;
+    if (shares <= 0) return toast('Enter shares to redeem');
+    await Live._send('Redeem request', () => chain.requestRedeem(toUnits(shares, dec.share)));
+    $('#redeemAmt').value = 0;
+  },
+
+  async claim() {
+    await Live._send('Claim', () => chain.claim());
+  },
+
+  // ---- admin ----
+  async unlockAdmin() {
+    try {
+      await Live.ensure();
+      if (!chain.account) { await Live.connect(); }
+      const [mgr, own] = await Promise.all([chain.isManager(), chain.isOwner()]);
+      if (!mgr && !own) return toast('Connected wallet is not the manager or owner');
+      state.isManager = true;
+      refreshAdmin();
+      adminLog(`Authenticated as ${mgr ? 'manager' : 'owner'} (${chain.account.slice(0, 6)}…).`, true);
+      toast('Admin access unlocked');
+    } catch (e) {
+      toast('Unlock failed: ' + e.message);
+    }
+  },
+
+  async admin(action) {
+    try {
+      if (action === 'discover' || action === 'build') {
+        adminLog(`“${action}” is an off-chain step — run: python -m sandick.admin ${action === 'discover' ? 'discover' : 'build-basket …'}`);
+        return;
+      }
+      if (action === 'submit' || action === 'rebalance') {
+        // Order encoding (HIP-3 asset ids + 1e8 px/sz) is owned by the Python
+        // planner; the chain hook is ready (chain.submitBasket(orders)).
+        adminLog(`“${action}” needs encoded orders from the planner: ` +
+          `python -m sandick.exec_cli run … then submit via chain.submitBasket(orders).`);
+        return;
+      }
+      if (action === 'bridge') {
+        const dir = (window.prompt('Bridge direction: type "toCore" or "fromCore"', 'toCore') || '').trim();
+        if (dir !== 'toCore' && dir !== 'fromCore') return adminLog('Bridge cancelled.');
+        const amt = parseFloat(window.prompt('Amount of USDC to bridge:', '0') || '0');
+        if (!(amt > 0)) return adminLog('Bridge cancelled (no amount).');
+        const units = toUnits(amt, dec.asset);
+        adminLog(`Bridging ${amt} USDC ${dir}…`);
+        await Live._send(`Bridge ${dir}`,
+          () => (dir === 'toCore' ? chain.bridgeToCore(units) : chain.bridgeFromCore(units)),
+          { coreAction: true });
+        adminLog(`Bridge ${dir} submitted; settles over the next blocks.`, true);
+      }
+    } catch (e) {
+      adminLog('Action failed: ' + (e.shortMessage || e.message));
+    }
+  },
+};
 
 // ═══════════════════════════════════════════════════════════
 //  Init
@@ -418,7 +620,12 @@ function init() {
   wireVault();
   wireAdmin();
   runCalc();
-  refreshVault();
+  if (LIVE) {
+    document.title = 'SANDICK — live (' + (CHAIN_CFG.explorer ? 'testnet' : 'chain ' + CHAIN_CFG.chainId) + ')';
+    Live.init();
+  } else {
+    refreshVault();
+  }
   refreshAdmin();
 }
 document.addEventListener('DOMContentLoaded', init);
