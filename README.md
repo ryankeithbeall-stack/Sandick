@@ -191,6 +191,9 @@ sandick/
   plan.py        # serialize a plan to a reviewable JSON artifact
   execute.py     # order intents, slippage/tick rounding, safe submission
   exec_cli.py    # execution CLI: verify + run
+  rebalance.py   # delta orders back to target weight
+  onchain.py     # plan -> on-chain submitBasket orders (HIP-3 asset ids, 1e8)
+  deploy_config.py # derive on-chain immutables from live data
   cli.py         # dry-run CLI + table rendering
 config/
   sandick.basket.json
@@ -215,16 +218,30 @@ See [contracts/README.md](contracts/README.md). **Unaudited — testnet only.**
 - **Dex scope:** a single Trade.xyz HIP-3 dex, so all legs share one USDC
   collateral pool (no cross-dex margin fragmentation).
 
+## Deploy the on-chain vault (testnet)
+
+```bash
+# 1. Derive the on-chain immutables from live data (perpDexs/meta/spotMeta):
+python -m sandick.deploy_config --dex-name tradexyz --out config/deploy.json
+
+# 2. Deploy reader + vault and allow-list the basket assets (dry-run by default):
+RPC_URL=... PRIVATE_KEY=... VAULT_OWNER=0x... VAULT_MANAGER=0x... USDC_ADDRESS=0x... \
+  node scripts/deploy.js config/deploy.json --execute
+```
+
+`deploy_config` computes the Trade.xyz `perpDexIndex`, each coin's HIP-3 asset id,
+USDC's system address / token index, and the EVM↔Core `coreScale`.
+
 ## Roadmap
 
 - [x] **Custom groupings/weights** beyond a single equal-weighted set.
-- [x] **Live order placement** behind an explicit `--execute` confirmation, with
-      slippage caps and a max-notional guard (`sandick.exec_cli`).
-- [ ] **Testnet sign-off:** run `verify` + a small `run --execute` to confirm a
-      native vault can trade the Trade.xyz HIP-3 dex (the one open assumption).
-- [ ] **Rebalance** mode: read the vault's current positions and trade only the
-      deltas back to target weight (reduce-only aware).
-- [ ] **Vault bootstrapping** helper (create the vault, seed the ≥5% leader stake).
+- [x] **Live order placement** (off-chain) behind `--execute`, slippage + notional guards.
+- [x] **On-chain vault** (ERC-4626) with NAV reader and async redemption queue.
+- [x] **Rebalance** mode: trade only the deltas back to target weight (reduce-only aware).
+- [x] **Deploy + calibration** scripts to derive on-chain immutables from live data.
+- [ ] **Testnet sign-off:** deploy to chainid 998, seed the Core account, and confirm
+      orders/NAV/bridging end-to-end (the remaining open assumptions).
+- [ ] **Security audit** before any mainnet deposits.
 
 ## Tests
 
