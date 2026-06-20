@@ -1,7 +1,7 @@
 # Sandick — Outstanding TODO
 
 Status of the HIP-3 equal-weighted basket vault. What's **done** is tested
-(62 Python + 12 contract tests); what's below is what remains before this can
+(129 Python + 12 contract tests); what's below is what remains before this can
 hold real money, plus the product surface that doesn't exist yet.
 
 Legend: 🔴 blocker for mainnet · 🟠 important · 🟢 nice-to-have
@@ -68,7 +68,7 @@ The architecture is simulation-tested only. Prove the live round-trip:
 - [ ] Confirm the vault's EVM USDC token is 6-decimal (else adjust `coreScale`).
 
 ## 7. Engineering hygiene 🟢
-- [ ] CI: run `pytest` + `npm run test:contracts` on every push.
+- [x] CI: run `pytest` + `npm run test:contracts` on every push.
 - [ ] Foundry test suite (mirrors the ethereumjs tests) for auditor familiarity.
 - [ ] Fork/integration tests against a HyperEVM testnet fork if tooling allows.
 - [ ] Linting/formatting (ruff/black for Python, forge fmt/solhint for Solidity).

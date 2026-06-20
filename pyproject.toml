@@ -12,7 +12,7 @@ dependencies = []
 
 [project.optional-dependencies]
 live = ["hyperliquid-python-sdk>=0.24.0"]
-dev = ["pytest>=8.0"]
+dev = ["pytest>=8.0", "pytest-cov>=5.0"]
 
 [project.scripts]
 sandick = "sandick.cli:main"
@@ -22,3 +22,17 @@ packages = ["sandick"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.coverage.run]
+source = ["sandick"]
+branch = true
+
+[tool.coverage.report]
+# Lines that legitimately need a live node or are unreachable in tests.
+exclude_also = [
+    "if __name__ == .__main__.:",
+    "pragma: no cover",
+]
+# Guard against coverage regressions without demanding the SDK-boundary glue.
+fail_under = 90
+show_missing = true

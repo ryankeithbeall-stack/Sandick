@@ -246,5 +246,16 @@ USDC's system address / token index, and the EVM↔Core `coreScale`.
 ## Tests
 
 ```bash
+# Python suite (runs fully offline — the hyperliquid SDK is faked in tests):
 python -m pytest
+
+# With coverage (enforces a 90% floor — see pyproject.toml):
+pip install -e ".[dev]"
+python -m pytest --cov=sandick --cov-report=term-missing
+
+# Solidity/EVM contract tests (in-process on @ethereumjs/vm):
+npm ci && npm run test:contracts
 ```
+
+Both suites run in CI on every push and pull request
+([`.github/workflows/ci.yml`](.github/workflows/ci.yml)).
