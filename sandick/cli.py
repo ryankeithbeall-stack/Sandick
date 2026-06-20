@@ -16,8 +16,9 @@ import argparse
 import sys
 from pathlib import Path
 
-from .allocator import AllocationPlan, build_equal_weight_plan
+from .allocator import AllocationPlan, build_plan
 from .basket import DEFAULT_BASKET_PATH, Basket
+from .plan import write_plan
 from .prices import fetch_live_prices, load_prices_file
 
 
@@ -39,18 +40,21 @@ def render_plan(plan: AllocationPlan) -> str:
         f"Side: {plan.side.upper()}    Gross notional: {_fmt_usd(plan.gross_notional)}"
     )
     lines.append("-" * 78)
-    header = f"  {'TICKER':<8}{'COIN':<8}{'SIDE':<6}{'PRICE':>11}{'SIZE':>12}{'NOTIONAL':>15}{'WEIGHT':>8}"
+    header = (
+        f"  {'TICKER':<8}{'COIN':<8}{'SIDE':<6}{'LEV':>5}{'PRICE':>11}"
+        f"{'SIZE':>12}{'NOTIONAL':>15}{'WEIGHT':>8}"
+    )
     lines.append(header)
     lines.append("-" * 78)
     for o in plan.orders:
         lines.append(
             f"  {o.asset.ticker:<8}{o.asset.coin:<8}{o.side.upper():<6}"
-            f"{o.price:>11,.2f}{o.size:>12,.{o.asset.sz_decimals}f}"
+            f"{o.leverage:>4g}x{o.price:>11,.2f}{o.size:>12,.{o.asset.sz_decimals}f}"
             f"{_fmt_usd(o.notional):>15}{o.actual_weight * 100:>7.2f}%"
         )
     lines.append("-" * 78)
     lines.append(
-        f"  {'TOTAL':<28}{'':>11}{'':>12}{_fmt_usd(plan.gross_notional):>15}"
+        f"  {'TOTAL':<33}{'':>11}{'':>12}{_fmt_usd(plan.gross_notional):>15}"
         f"{sum(o.actual_weight for o in plan.orders) * 100:>7.2f}%"
     )
     lines.append(
@@ -87,6 +91,9 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--testnet", action="store_true", help="With --live, use testnet instead of mainnet."
     )
+    p.add_argument(
+        "--out", type=Path, help="Write the plan to this JSON file (reviewable artifact)."
+    )
     return p
 
 
@@ -112,7 +119,7 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     try:
-        plan = build_equal_weight_plan(
+        plan = build_plan(
             basket, prices, capital=args.capital, leverage=args.leverage, side=args.side
         )
     except (KeyError, ValueError) as exc:
@@ -120,6 +127,9 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     print(render_plan(plan))
+    if args.out:
+        write_plan(plan, str(args.out))
+        print(f"\nSaved plan artifact to {args.out}")
     return 0
 
 
