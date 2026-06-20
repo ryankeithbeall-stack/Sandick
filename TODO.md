@@ -64,8 +64,13 @@ step-by-step runbook for all of this now lives in
 - [x] **Pausability / circuit breaker** (owner pauses deposits/trading; exits
       stay open). `pause`/`unpause` in `SandickVaultBase`.
 - [x] **Per-tx and per-epoch caps** on manager order notional (`setOrderCaps`).
-- [ ] Decide whether `bridgeFromCore` should be partially permissionless to
-      guarantee redemption liveness if the manager goes dark.
+- [x] **Redemption-liveness backstop**: `bridgeFromCoreForRedemptions` lets
+      anyone pull USDC back from Core — but only up to the outstanding
+      redemption deficit, and only once the manager has been silent for
+      `managerTimeout` (default 7 days, owner-settable, 0 disables). Manager
+      trades/bridges reset the countdown; the backstop never moves funds out of
+      the vault. So a dark manager can delay exits but never trap them. Tested
+      (5 contract tests; the EVM harness now supports a mutable clock).
 - [~] Handle negative/under-water `accountValue` (reader clamps to 0); **stale
       reads** still need explicit handling.
 - [x] Events/telemetry for every state transition (subgraph-friendly) — incl.
