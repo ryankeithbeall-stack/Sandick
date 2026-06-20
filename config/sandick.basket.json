@@ -1,7 +1,7 @@
 {
   "name": "SANDICK",
-  "dex": "sandick",
-  "description": "Equal-weighted basket of 7 AI / data-center / storage names whose logos spell SANDICK. Deployed as HIP-3 (builder-deployed) perps on Hyperliquid.",
+  "dex": "tradexyz",
+  "description": "Equal-weighted basket of 7 AI / data-center / storage names whose logos spell SANDICK. Traded as HIP-3 (builder-deployed) perps on the Trade.xyz dex. Replace 'dex' and 'coin' values with the real Trade.xyz dex name and symbols.",
   "assets": [
     { "company": "SanDisk",     "ticker": "SNDK", "coin": "SNDK", "sz_decimals": 2 },
     { "company": "Astera Labs", "ticker": "ALAB", "coin": "ALAB", "sz_decimals": 2 },

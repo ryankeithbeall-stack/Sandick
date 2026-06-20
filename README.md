@@ -119,6 +119,42 @@ disambiguates coins that appear on multiple dexes (qualify them as `dex:COIN`),
 and writes a ready-to-use basket. The grouping/weighting is equal-weight today;
 custom groupings are on the roadmap.
 
+## Execution (native vault, testnet-first)
+
+Once a basket is built, the execution CLI plans and (optionally) places the
+orders on a **native Hyperliquid vault** that trades the **Trade.xyz** HIP-3 dex.
+It is conservative by design — it handles pooled depositor funds:
+
+- **testnet by default** (mainnet needs `--mainnet`)
+- **preview unless `--execute`** is passed
+- **marketable limit orders with a `--slippage` cap** (never naked market orders)
+- a **`--max-notional` circuit breaker**
+- credentials from the environment only
+
+```bash
+# Read-only: prove the vault can see the dex + collateral (testnet).
+python -m sandick.exec_cli verify --use-env
+
+# Preview the orders (no creds, no send):
+python -m sandick.exec_cli run --capital 70000 --prices config/prices.example.json
+
+# Send on testnet, capped:
+HL_SECRET_KEY=0x... HL_VAULT_ADDRESS=0x... \
+  python -m sandick.exec_cli run --capital 70000 --live --execute --max-notional 80000
+```
+
+Environment variables (only needed for `verify --use-env` / `run --execute`):
+
+| Var                  | Purpose                                              |
+|----------------------|------------------------------------------------------|
+| `HL_SECRET_KEY`      | API/agent wallet private key (signs for the vault).  |
+| `HL_VAULT_ADDRESS`   | The native vault address to trade on behalf of.      |
+| `HL_ACCOUNT_ADDRESS` | (optional) master account address.                   |
+
+> **Before mainnet,** run `verify` and a small testnet `run --execute` to confirm
+> a native vault can place orders on the Trade.xyz HIP-3 dex (`dex:COIN` coins via
+> `Exchange(vault_address=...)`). This is the one assumption the design rests on.
+
 ## Configuration
 
 - **`config/sandick.basket.json`** — the basket: dex name, coin symbols and each
@@ -149,8 +185,12 @@ sandick/
   basket.py      # Basket / BasketAsset models + JSON loading
   allocator.py   # pure equal-weight sizing math (no network)
   prices.py      # price sources: local file or live Hyperliquid mids
+  weights.py     # equal / explicit / grouped target-weight resolution
   discovery.py   # enumerate HIP-3 assets across perp dexes
   admin.py       # admin CLI: discover assets + build a basket
+  plan.py        # serialize a plan to a reviewable JSON artifact
+  execute.py     # order intents, slippage/tick rounding, safe submission
+  exec_cli.py    # execution CLI: verify + run
   cli.py         # dry-run CLI + table rendering
 config/
   sandick.basket.json
@@ -158,21 +198,24 @@ config/
 tests/           # pytest suite (run: python -m pytest)
 ```
 
+## Architecture decisions
+
+- **Vault:** native Hyperliquid vault (~100 USDC to create; leader keeps ≥5%).
+  Depositors are protocol-enforced deposit-only and PnL is split for us — no
+  custom accounting. The admin runs the basket via `Exchange(vault_address=...)`.
+- **Dex scope:** a single Trade.xyz HIP-3 dex, so all legs share one USDC
+  collateral pool (no cross-dex margin fragmentation).
+
 ## Roadmap
 
-- [ ] **Vault deposits/withdrawals (depositor role).** Decide between a
-      Hyperliquid **native vault** (built-in depositor accounting + PnL split,
-      recommended) vs. a custom vault contract/ledger. This unlocks the
-      depositor role. Open question to verify against live docs: whether a
-      native vault can hold positions on HIP-3 builder dexes, and whether HIP-3
-      collateral is unified or isolated per dex.
-- [ ] **Live order placement** via `Exchange` (API wallet) behind an explicit
-      `--execute` confirmation, with slippage caps and reduce-only rebalancing.
-- [ ] **Rebalance** mode: read current positions and trade only the deltas back
-      to equal weight.
-- [ ] **Custom groupings/weights** beyond a single equal-weighted set.
-- [ ] **HIP-3 market deployment** helper (stake HYPE, register the perp dex) —
-      only needed if the admin deploys their own markets.
+- [x] **Custom groupings/weights** beyond a single equal-weighted set.
+- [x] **Live order placement** behind an explicit `--execute` confirmation, with
+      slippage caps and a max-notional guard (`sandick.exec_cli`).
+- [ ] **Testnet sign-off:** run `verify` + a small `run --execute` to confirm a
+      native vault can trade the Trade.xyz HIP-3 dex (the one open assumption).
+- [ ] **Rebalance** mode: read the vault's current positions and trade only the
+      deltas back to target weight (reduce-only aware).
+- [ ] **Vault bootstrapping** helper (create the vault, seed the ≥5% leader stake).
 
 ## Tests
 
