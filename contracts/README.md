@@ -28,7 +28,7 @@ builder dex) through the **CoreWriter** system contract.
 src/
   SandickVaultBase.sol        # ERC-4626 + roles + NAV + withdrawal caps (abstract)
   SandickVault.sol            # production: CoreWriter write-path + reader NAV
-  HyperCoreReader.sol         # NAV via read precompiles  (STUB — to implement)
+  HyperCoreReader.sol         # NAV via accountMarginSummary precompile (0x..080F)
   lib/HyperCoreActions.sol    # CoreWriter action encodings (confirmed)
   interfaces/                 # ICoreWriter, IHyperCoreReader
 test/
@@ -46,10 +46,17 @@ test/
 - HIP-3 asset id = `100000 + perp_dex_index*10000 + index_in_meta` (first builder dex → 110000).
 - CoreWriter is **async + fails silently** (no revert); fund the Core account in an **earlier block** than the first trade.
 
+NAV reading is implemented: `HyperCoreReader` staticcalls the
+`accountMarginSummary` precompile (`0x..080F`) and uses `accountValue`
+(collateral + uPnL, already 6-decimal USDC) — confirmed against hyper-evm-lib.
+The precompile address is an immutable (mockable in tests, fixable on-chain).
+
 **Must verify on testnet before mainnet** (externalized to constructor immutables
-/ the reader stub so nothing unconfirmed is hard-coded as fact):
-- `HyperCoreReader.accountEquityUsd` — the read-precompile addresses/ABIs and the
-  equity computation (critical: NAV must be on-chain, never manager-set).
+so nothing unconfirmed is hard-coded as fact):
+- The `perpDexIndex` for the Trade.xyz dex, and behavior of `accountMarginSummary`
+  for a never-initialized Core account (seed the account before opening deposits).
+  USDC parked in spot mid-bridge is not counted — extend with the spot-balance
+  precompile if needed.
 - USDC's exact system address (`0x20…<tokenIndex>`), Core token index, and the
   EVM↔Core decimal scale (`coreScale`) — read from live `spotMeta`.
 ## Async redemption queue

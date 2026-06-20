@@ -11,6 +11,7 @@ const ENTRIES = [
   "contracts/src/HyperCoreReader.sol",
   "contracts/test/mocks/MockSandickVault.sol",
   "contracts/test/mocks/MockERC20.sol",
+  "contracts/test/mocks/MockMarginSummary.sol",
 ];
 
 function findImport(importPath) {
