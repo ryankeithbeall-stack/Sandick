@@ -195,6 +195,7 @@ sandick/
   keeper.py      # pure keeper decision logic (liquidity buffer + drift signal)
   keeper_bot.py  # keeper orchestration: read -> act -> verify (KeeperClient seam)
   keeper_chain.py # live web3 adapter: vault reads + margin precompile + writes
+  keeper_cli.py  # operator CLI: assemble config + run the keeper (preview/execute)
   cli.py         # dry-run CLI + table rendering
 config/
   sandick.basket.json
@@ -260,6 +261,19 @@ run_loop(bot, interval=60)                           # tick() forever
 
 `dry_run=True` (the default) plans and logs but never sends — flip it only after
 testnet sign-off. Install the adapter deps with `pip install -e ".[keeper,live]"`.
+
+Or run it straight from the CLI — it assembles weights/sizes from the basket and
+`assetId`s from `config/deploy.json`, and is **preview-only until `--execute`**:
+
+```bash
+# Preview one tick against testnet (no key, nothing sent):
+RPC_URL=… VAULT_ADDRESS=0x… USDC_ADDRESS=0x… \
+  python -m sandick.keeper_cli --once
+
+# Run live, transmitting (manager key required):
+RPC_URL=… VAULT_ADDRESS=0x… USDC_ADDRESS=0x… MANAGER_KEY=0x… \
+  python -m sandick.keeper_cli --execute --interval 60
+```
 
 ## Roadmap
 
