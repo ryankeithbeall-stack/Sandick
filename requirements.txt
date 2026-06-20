@@ -1,0 +1,5 @@
+# Runtime: only needed for `--live` price fetching / future order placement.
+hyperliquid-python-sdk>=0.24.0
+
+# Dev/test
+pytest>=8.0
