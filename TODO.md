@@ -8,20 +8,24 @@ Legend: 🔴 blocker for mainnet · 🟠 important · 🟢 nice-to-have
 
 ---
 
-## 1. Front-end UI — NOT STARTED 🟠
-There is currently **no UI**. Everything is CLI + contracts. Needed:
+## 1. Front-end UI — SCAFFOLDED (demo) 🟠
+A sleek, zero-build front end now lives in [`frontend/`](frontend/) (hero with
+the SANDICK image, basket overview, live equal-weight calculator, depositor app
+and admin panel). It runs on a **local demo state machine** — no chain calls
+yet. Remaining to make it live:
 
-- [ ] **Depositor app**: connect wallet (HyperEVM), deposit USDC, view shares,
-      NAV/share price, position breakdown, redeem (sync) and the async queue
-      (`requestRedeem` → status → `claim`).
-- [ ] **Admin panel**: discover HIP-3 assets, build/adjust the basket and
-      weights, preview the equal-weight plan, submit basket, trigger rebalance,
-      bridge to/from Core. Gate to the manager/owner address.
-- [ ] **Async-aware UX**: CoreWriter actions are delayed and fail silently, so
-      the UI must show "pending → confirmed" by polling read state, not assume
-      success from the EVM tx receipt.
-- [ ] Read NAV / positions / queue state from the contract + read precompiles.
-- [ ] Stack decision (React + wagmi/viem on HyperEVM is the likely path).
+- [x] **Depositor app** UI: connect wallet, deposit USDC, view shares,
+      NAV/share price, basket breakdown, redeem (sync) and the async queue
+      (`requestRedeem` → status → `claim`). *(demo state — needs wiring)*
+- [x] **Admin panel** UI: discover HIP-3 assets, build/adjust the basket,
+      preview the equal-weight plan, submit basket, rebalance, bridge to/from
+      Core. Gated to the manager/owner address. *(demo state — needs wiring)*
+- [x] **Async-aware UX**: queue models "pending → claimable" on a delay rather
+      than trusting an EVM receipt.
+- [ ] **Wire to chain**: replace demo handlers with wagmi/viem calls; read NAV /
+      positions / queue state from the contract + read precompiles.
+- [x] Stack decision (zero-build vanilla today; React + wagmi/viem on HyperEVM
+      for the live wiring).
 
 ## 2. Testnet sign-off (chainid 998) 🔴
 The architecture is simulation-tested only. Prove the live round-trip:
