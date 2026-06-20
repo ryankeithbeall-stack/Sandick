@@ -2,6 +2,7 @@
 // contracts. Uses @ethereumjs/vm message calls + ethers for ABI coding.
 const { createVM } = require("@ethereumjs/vm");
 const { Common, Hardfork, Mainnet } = require("@ethereumjs/common");
+const { createBlock } = require("@ethereumjs/block");
 const { createAddressFromString, Account, hexToBytes, bytesToHex } = require("@ethereumjs/util");
 const { ethers } = require("ethers");
 
@@ -29,6 +30,9 @@ function coverageCollector() {
 async function makeVM() {
   const common = new Common({ chain: Mainnet, hardfork: Hardfork.Shanghai });
   const vm = await createVM({ common });
+  // Mutable clock for BLOCK.timestamp; tests advance it via warp()/setTimestamp().
+  vm.__common = common;
+  vm.__timestamp = 0n;
   // Fund accounts so any value/gas accounting passes.
   for (const a of Object.values(ACCOUNTS)) {
     await vm.stateManager.putAccount(a, new Account(0n, 10n ** 24n));
@@ -72,11 +76,16 @@ class Contract {
   // when present). Returns decoded outputs.
   async send(from, fn, args = []) {
     const data = hexToBytes(this.iface.encodeFunctionData(fn, args));
+    const block = createBlock(
+      { header: { timestamp: this.vm.__timestamp ?? 0n } },
+      { common: this.vm.__common }
+    );
     const res = await this.vm.evm.runCall({
       caller: from,
       to: this.address,
       data,
       gasLimit: GAS,
+      block,
     });
     const out = res.execResult;
     if (out.exceptionError) {
@@ -98,4 +107,14 @@ class Contract {
   }
 }
 
-module.exports = { makeVM, deploy, ACCOUNTS };
+// Advance the VM clock by `seconds` (for time-dependent logic like timeouts).
+function warp(vm, seconds) {
+  vm.__timestamp = (vm.__timestamp ?? 0n) + BigInt(seconds);
+}
+
+// Set the VM clock to an absolute timestamp.
+function setTimestamp(vm, ts) {
+  vm.__timestamp = BigInt(ts);
+}
+
+module.exports = { makeVM, deploy, ACCOUNTS, warp, setTimestamp };

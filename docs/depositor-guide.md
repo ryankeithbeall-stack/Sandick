@@ -50,6 +50,12 @@ to cover you immediately. `maxRedeem` / `maxWithdraw` show the cap.
    not the remaining holders.
 4. `claim()` pays out the reserved USDC whenever you like.
 
+**If the manager goes dark.** Step 2 normally relies on the manager. As a
+backstop, if the manager key is inactive for `managerTimeout` (default ~7 days),
+**anyone** — including you — can call `bridgeFromCoreForRedemptions` to pull back
+the USDC your queued exit is owed (capped to that amount), then `fulfillRedeem` +
+`claim`. So an absent manager can delay your exit but can never trap it.
+
 ## Why the UI says "pending → claimable," not "done"
 
 HyperCore actions (the bridge, the order fills) are **asynchronous and can fail

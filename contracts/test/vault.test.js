@@ -3,7 +3,9 @@
 // withdrawal caps, and the trade-only manager restrictions.
 const assert = require("assert");
 const { compile } = require("../../scripts/compile");
-const { makeVM, deploy, ACCOUNTS } = require("../../scripts/evm");
+const { makeVM, deploy, ACCOUNTS, warp } = require("../../scripts/evm");
+
+const SEVEN_DAYS = 7n * 24n * 60n * 60n;
 
 const USDC = 10n ** 6n;
 const { deployer, manager, alice, bob, owner } = ACCOUNTS;
@@ -262,6 +264,74 @@ async function main() {
     // a 400 leg fits (1400 <= 1500)
     await vault.send(manager, "submitBasket", [[[7, true, 100n, 4n, false]]]);
     assert.equal(await vault.call("epochNotionalUsed"), 1400n);
+  });
+
+  // Set up a vault with a redemption deficit: most funds on Core, a queued
+  // redemption that idle liquidity can't cover. Returns alice's escrowed shares.
+  async function deficitFixture() {
+    const f = await fixture();
+    const { vault } = f;
+    await vault.send(alice, "deposit", [1000n * USDC, a(alice)]);
+    await vault.send(manager, "bridgeToCore", [950n * USDC]); // idle 50, core 950
+    const shares = await vault.call("balanceOf", [a(alice)]);
+    await vault.send(alice, "requestRedeem", [shares]); // escrow -> deficit ~950
+    return { ...f, shares };
+  }
+
+  await test("redemption backstop is shut while the manager is active", async () => {
+    const { vault } = await deficitFixture();
+    assert.equal(await vault.call("managerIsDark"), false);
+    const deficit = await vault.call("redemptionDeficit");
+    assert.ok(deficit > 0n, `expected a deficit, got ${deficit}`);
+    // non-manager can't force a bridge yet
+    await assert.rejects(() => vault.send(bob, "bridgeFromCoreForRedemptions", [deficit]));
+  });
+
+  await test("redemption backstop opens after manager timeout; exit completes", async () => {
+    const { usdc, vault, shares } = await deficitFixture();
+    warp(vault.vm, SEVEN_DAYS + 1n);
+    assert.equal(await vault.call("managerIsDark"), true);
+
+    const deficit = await vault.call("redemptionDeficit");
+    // anyone (bob) can now pull exactly the owed USDC back from Core
+    await vault.send(bob, "bridgeFromCoreForRedemptions", [deficit]);
+
+    // queued redemption can now be fulfilled (permissionless) and claimed
+    await vault.send(bob, "fulfillRedeem", [a(alice), shares]);
+    const before = await usdc.call("balanceOf", [a(alice)]);
+    await vault.send(alice, "claim");
+    const after = await usdc.call("balanceOf", [a(alice)]);
+    assert.ok(after - before >= 999n * USDC, `alice recovered ${after - before}`);
+  });
+
+  await test("redemption backstop can never pull more than is owed", async () => {
+    const { vault } = await deficitFixture();
+    warp(vault.vm, SEVEN_DAYS + 1n);
+    const deficit = await vault.call("redemptionDeficit");
+    await assert.rejects(() =>
+      vault.send(bob, "bridgeFromCoreForRedemptions", [deficit + 1n])
+    );
+    // zero amount is rejected too
+    await assert.rejects(() => vault.send(bob, "bridgeFromCoreForRedemptions", [0n]));
+  });
+
+  await test("manager activity resets the backstop countdown", async () => {
+    const { vault } = await deficitFixture();
+    warp(vault.vm, SEVEN_DAYS - 100n);          // almost dark
+    await vault.send(manager, "bridgeToCore", [1n * USDC]); // a heartbeat
+    warp(vault.vm, 200n);                        // past the original deadline
+    assert.equal(await vault.call("managerIsDark"), false);
+    const deficit = await vault.call("redemptionDeficit");
+    await assert.rejects(() => vault.send(bob, "bridgeFromCoreForRedemptions", [deficit]));
+  });
+
+  await test("owner can disable the redemption backstop", async () => {
+    const { vault } = await deficitFixture();
+    await vault.send(owner, "setManagerTimeout", [0n]);
+    warp(vault.vm, 100n * SEVEN_DAYS);
+    assert.equal(await vault.call("managerIsDark"), false);
+    const deficit = await vault.call("redemptionDeficit");
+    await assert.rejects(() => vault.send(bob, "bridgeFromCoreForRedemptions", [deficit]));
   });
 
   await test("manager has no path to extract funds", async () => {

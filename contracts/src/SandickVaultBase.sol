@@ -34,6 +34,18 @@ abstract contract SandickVaultBase is ERC4626, Ownable, ReentrancyGuard, Pausabl
     /// @notice Assets (HyperCore asset ids) the manager is allowed to trade.
     mapping(uint32 => bool) public allowedAsset;
 
+    // --- Redemption-liveness backstop ---
+    // If the manager key goes dark, queued redemptions could starve (no idle
+    // USDC, and bridgeFromCore is manager-only). To guarantee exits, anyone may
+    // bridge USDC back from Core once the manager has been inactive for
+    // `managerTimeout` seconds — but only up to the outstanding redemption
+    // deficit, so the backstop can never pull more than is owed to redeemers.
+    /// @notice Timestamp of the manager's last trade/bridge action.
+    uint256 public lastManagerAction;
+    /// @notice Seconds of manager inactivity after which the redemption backstop
+    /// opens. 0 disables the backstop (bridgeFromCore stays manager-only).
+    uint64 public managerTimeout;
+
     // --- Manager order caps (defense in depth) ---
     // Bounds on the raw notional of a single order leg (`limitPx * sz`, in
     // HyperCore integer units) and on the cumulative notional submitted within a
@@ -83,6 +95,8 @@ abstract contract SandickVaultBase is ERC4626, Ownable, ReentrancyGuard, Pausabl
     event RedeemFulfilled(address indexed owner, uint256 shares, uint256 assets);
     event RedeemClaimed(address indexed owner, uint256 assets);
     event OrderCapsUpdated(uint256 maxOrderNotional, uint256 epochNotionalCap, uint64 epochLength);
+    event ManagerTimeoutUpdated(uint64 timeout);
+    event RedemptionBridgeForced(address indexed caller, uint256 amount);
 
     error NotManager();
     error ZeroAddress();
@@ -93,6 +107,8 @@ abstract contract SandickVaultBase is ERC4626, Ownable, ReentrancyGuard, Pausabl
     error NothingClaimable();
     error OrderNotionalExceeded(uint32 assetId, uint256 notional, uint256 cap);
     error EpochNotionalExceeded(uint256 used, uint256 cap);
+    error ManagerStillActive();
+    error ExceedsRedemptionDeficit(uint256 requested, uint256 deficit);
 
     modifier onlyManager() {
         if (msg.sender != manager) revert NotManager();
@@ -108,7 +124,14 @@ abstract contract SandickVaultBase is ERC4626, Ownable, ReentrancyGuard, Pausabl
     ) ERC20(name_, symbol_) ERC4626(asset_) Ownable(owner_) {
         if (manager_ == address(0) || owner_ == address(0)) revert ZeroAddress();
         manager = manager_;
+        lastManagerAction = block.timestamp;
+        managerTimeout = 7 days; // backstop opens after a week of manager silence
         emit ManagerUpdated(manager_);
+    }
+
+    /// @dev Record manager liveness; resets the redemption-backstop countdown.
+    function _touchManager() internal {
+        lastManagerAction = block.timestamp;
     }
 
     // --------------------------------------------------------------------- //
@@ -255,18 +278,55 @@ abstract contract SandickVaultBase is ERC4626, Ownable, ReentrancyGuard, Pausabl
                 revert EpochNotionalExceeded(epochNotionalUsed, epochNotionalCap);
             }
         }
+        _touchManager();
         emit BasketSubmitted(n);
     }
 
     /// @notice Move idle USDC from HyperEVM into the vault's HyperCore account.
     function bridgeToCore(uint256 amount) external onlyManager nonReentrant whenNotPaused {
         _bridgeToCore(amount);
+        _touchManager();
         emit BridgedToCore(amount);
     }
 
     /// @notice Pull USDC from HyperCore back to HyperEVM to service redemptions.
     function bridgeFromCore(uint256 amount) external onlyManager nonReentrant {
         _bridgeFromCore(amount);
+        _touchManager();
+        emit BridgedFromCore(amount);
+    }
+
+    // --------------------------------------------------------------------- //
+    //                   Redemption-liveness backstop                        //
+    // --------------------------------------------------------------------- //
+
+    /// @notice USDC owed to queued redemptions beyond what idle liquidity covers.
+    function redemptionDeficit() public view returns (uint256) {
+        uint256 owed = convertToAssets(totalPendingRedeemShares);
+        uint256 idle = _idleAssets();
+        return owed > idle ? owed - idle : 0;
+    }
+
+    /// @notice True when the backstop is enabled and the manager has been silent
+    /// for at least `managerTimeout` seconds.
+    function managerIsDark() public view returns (bool) {
+        return managerTimeout != 0 && block.timestamp > lastManagerAction + managerTimeout;
+    }
+
+    /// @notice Permissionless redemption rescue: if the manager has gone dark,
+    /// anyone may bridge USDC from Core back to HyperEVM — but only up to the
+    /// outstanding redemption deficit. It never moves funds out of the vault
+    /// (the USDC lands in the vault's own idle balance for `fulfillRedeem` /
+    /// `claim`), never touches Core positions beyond the owed amount, and does
+    /// NOT count as manager activity. This is the liveness guarantee: a dark
+    /// manager can delay exits but never trap them.
+    function bridgeFromCoreForRedemptions(uint256 amount) external nonReentrant {
+        if (!managerIsDark()) revert ManagerStillActive();
+        if (amount == 0) revert ZeroAmount();
+        uint256 deficit = redemptionDeficit();
+        if (amount > deficit) revert ExceedsRedemptionDeficit(amount, deficit);
+        _bridgeFromCore(amount);
+        emit RedemptionBridgeForced(msg.sender, amount);
         emit BridgedFromCore(amount);
     }
 
@@ -277,7 +337,15 @@ abstract contract SandickVaultBase is ERC4626, Ownable, ReentrancyGuard, Pausabl
     function setManager(address newManager) external onlyOwner {
         if (newManager == address(0)) revert ZeroAddress();
         manager = newManager;
+        lastManagerAction = block.timestamp; // give the new manager a full window
         emit ManagerUpdated(newManager);
+    }
+
+    /// @notice Set the manager-inactivity window before the redemption backstop
+    /// opens (0 disables it). Owner-only.
+    function setManagerTimeout(uint64 timeout) external onlyOwner {
+        managerTimeout = timeout;
+        emit ManagerTimeoutUpdated(timeout);
     }
 
     function setAllowedAsset(uint32 assetId, bool ok) external onlyOwner {

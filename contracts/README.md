@@ -77,6 +77,19 @@ funds are available (not the remaining holders). Reserved assets are excluded
 from NAV and protected from sync withdrawals. Fulfillment being permissionless
 means the manager can never block an exit once liquidity is present.
 
+### Redemption-liveness backstop
+
+Step 2 above relies on the manager bridging funds back. If the manager key goes
+**dark**, that step never happens and queued exits could starve. The backstop
+closes that gap: once the manager has been inactive for `managerTimeout` (default
+7 days; owner-settable; 0 disables), **anyone** may call
+`bridgeFromCoreForRedemptions(amount)` to pull USDC from Core back to the vault —
+but only up to `redemptionDeficit()` (the USDC owed to the queue beyond idle
+liquidity). It never moves funds out of the vault and never pulls more than is
+owed, so it can't be used to grief the strategy; it only guarantees that a dark
+manager can *delay* exits, never *trap* them. Any manager trade/bridge resets the
+countdown (`managerIsDark()` exposes the current state).
+
 ## Owner controls (defense in depth)
 
 The owner holds bounded, trust-minimized levers — none can seize deposits or

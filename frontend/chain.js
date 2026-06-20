@@ -41,6 +41,9 @@ export const VAULT_ABI = [
   { type: 'function', stateMutability: 'view', name: 'maxRedeem', inputs: [{ type: 'address' }], outputs: [{ type: 'uint256' }] },
   { type: 'function', stateMutability: 'view', name: 'pendingRedeemShares', inputs: [{ type: 'address' }], outputs: [{ type: 'uint256' }] },
   { type: 'function', stateMutability: 'view', name: 'claimableAssets', inputs: [{ type: 'address' }], outputs: [{ type: 'uint256' }] },
+  // redemption-liveness backstop
+  { type: 'function', stateMutability: 'view', name: 'managerIsDark', inputs: [], outputs: [{ type: 'bool' }] },
+  { type: 'function', stateMutability: 'view', name: 'redemptionDeficit', inputs: [], outputs: [{ type: 'uint256' }] },
   // ---- role reads (admin gating) ----
   { type: 'function', stateMutability: 'view', name: 'owner', inputs: [], outputs: [{ type: 'address' }] },
   { type: 'function', stateMutability: 'view', name: 'manager', inputs: [], outputs: [{ type: 'address' }] },
@@ -53,6 +56,8 @@ export const VAULT_ABI = [
   { type: 'function', stateMutability: 'nonpayable', name: 'claim', inputs: [], outputs: [] },
   // fulfillRedeem is permissionless once idle liquidity exists (redemption liveness).
   { type: 'function', stateMutability: 'nonpayable', name: 'fulfillRedeem', inputs: [{ type: 'address' }, { type: 'uint256' }], outputs: [] },
+  // permissionless backstop: pull USDC from Core (up to the deficit) if the manager went dark.
+  { type: 'function', stateMutability: 'nonpayable', name: 'bridgeFromCoreForRedemptions', inputs: [{ type: 'uint256' }], outputs: [] },
   // ---- manager writes ----
   { type: 'function', stateMutability: 'nonpayable', name: 'submitBasket', inputs: [{ type: 'tuple[]', name: 'orders', components: ORDER_COMPONENTS }], outputs: [] },
   { type: 'function', stateMutability: 'nonpayable', name: 'bridgeToCore', inputs: [{ type: 'uint256' }], outputs: [] },
@@ -116,6 +121,8 @@ export class SandickChain {
   convertToAssets(shares) { return this._read('convertToAssets', [shares]); }
   pendingRedeemShares(addr) { return this._read('pendingRedeemShares', [addr]); }
   claimableAssets(addr) { return this._read('claimableAssets', [addr]); }
+  managerIsDark() { return this._read('managerIsDark'); }
+  redemptionDeficit() { return this._read('redemptionDeficit'); }
   owner() { return this._read('owner'); }
   manager() { return this._read('manager'); }
   allowedAsset(assetId) { return this._read('allowedAsset', [assetId]); }
@@ -196,6 +203,10 @@ export class SandickChain {
 
   /** Permissionless once idle USDC exists: settle another holder's queued request. */
   async fulfillRedeem(owner, shares) { return this._write('fulfillRedeem', [owner, shares]); }
+
+  /** Redemption-liveness backstop: if managerIsDark(), anyone may pull USDC from
+   *  Core back to the vault (capped at redemptionDeficit()) so exits can settle. */
+  async bridgeFromCoreForRedemptions(amount) { return this._write('bridgeFromCoreForRedemptions', [amount]); }
 
   // ---- manager writes ----
   /** Submit basket orders. `orders` = [{ assetId, isBuy, limitPx, sz, reduceOnly }]
