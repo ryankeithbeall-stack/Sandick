@@ -44,6 +44,11 @@ export const VAULT_ABI = [
   // redemption-liveness backstop
   { type: 'function', stateMutability: 'view', name: 'managerIsDark', inputs: [], outputs: [{ type: 'bool' }] },
   { type: 'function', stateMutability: 'view', name: 'redemptionDeficit', inputs: [], outputs: [{ type: 'uint256' }] },
+  // fees
+  { type: 'function', stateMutability: 'view', name: 'managementFeeBps', inputs: [], outputs: [{ type: 'uint16' }] },
+  { type: 'function', stateMutability: 'view', name: 'performanceFeeBps', inputs: [], outputs: [{ type: 'uint16' }] },
+  { type: 'function', stateMutability: 'view', name: 'exitFeeBps', inputs: [], outputs: [{ type: 'uint16' }] },
+  { type: 'function', stateMutability: 'view', name: 'feeRecipient', inputs: [], outputs: [{ type: 'address' }] },
   // ---- role reads (admin gating) ----
   { type: 'function', stateMutability: 'view', name: 'owner', inputs: [], outputs: [{ type: 'address' }] },
   { type: 'function', stateMutability: 'view', name: 'manager', inputs: [], outputs: [{ type: 'address' }] },
@@ -123,6 +128,14 @@ export class SandickChain {
   claimableAssets(addr) { return this._read('claimableAssets', [addr]); }
   managerIsDark() { return this._read('managerIsDark'); }
   redemptionDeficit() { return this._read('redemptionDeficit'); }
+
+  /** Fee schedule in basis points: { management, performance, exit }. */
+  async feeSchedule() {
+    const [management, performance, exit] = await Promise.all([
+      this._read('managementFeeBps'), this._read('performanceFeeBps'), this._read('exitFeeBps'),
+    ]);
+    return { management, performance, exit };
+  }
   owner() { return this._read('owner'); }
   manager() { return this._read('manager'); }
   allowedAsset(assetId) { return this._read('allowedAsset', [assetId]); }

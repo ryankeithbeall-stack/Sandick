@@ -108,6 +108,26 @@ NAV (`totalAssets`) also counts USDC sitting in the Core **spot** account
 mid-bridge via the `_coreSpotUsd()` hook (default 0; override wires the
 spot-balance precompile), keeping share price continuous across the bridge.
 
+## Fees
+
+Three fees, all owner-configured within hard caps (`setFeeConfig`; mgmt ≤ 5%,
+perf ≤ 30%, exit ≤ 1%), defaulting to **2%/yr management · 10% performance · 0.1%
+exit**:
+
+- **Management** — streams on NAV pro-rata to time.
+- **Performance** — a cut of any gain in price-per-share above a global
+  **high-water mark** (so it's only charged on new highs, never on recovery).
+- **Exit** — a small fee on redemption, **retained in the vault** so it accrues
+  to the holders who stay (and discourages churn / queue gaming).
+
+Management + performance fees are minted as **dilution shares** to the treasury
+(`feeRecipient`) rather than paid in USDC — so the *no funds ever leave the
+vault* invariant is untouched; the treasury is just another share holder.
+`_accrueFees()` runs before every deposit/withdraw/redeem and queue action
+(and via the permissionless `accrueFees()` poke) so share price is always
+fee-current. **Audit focus:** the performance fee keys off on-chain NAV, so the
+NAV read must not be transiently inflatable.
+
 ## Build & test (no Foundry required)
 
 ```bash

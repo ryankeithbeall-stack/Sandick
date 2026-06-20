@@ -110,7 +110,13 @@ step-by-step runbook for all of this now lives in
 - [ ] Solidity formatting/linting (forge fmt / solhint).
 
 ## 8. Product / economics 🟢
-- [ ] Fee model (management/performance) if desired — currently none on-chain.
+- [x] Fee model: 2%/yr management + 10% performance (over a high-water mark) +
+      0.1% exit, all charged as **dilution shares** to a treasury (exit fee
+      retained in the vault) so the no-funds-out invariant holds. Owner-set with
+      hard caps (`setFeeConfig`); accrues before every deposit/withdraw/queue
+      action; `accrueFees()` poke. Tested (5 contract tests). **Note for audit:**
+      performance fee keys off on-chain NAV — verify the read can't be transiently
+      inflated to mint excess fee shares.
 - [ ] Deposit caps / whitelisting if access control is wanted later.
 - [x] Docs: depositor-facing explainer + risk disclosures (`docs/`).
 

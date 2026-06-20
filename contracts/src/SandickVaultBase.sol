@@ -8,6 +8,7 @@ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
+import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
 /// @title SandickVaultBase
 /// @notice Trustless, tokenized HyperEVM vault for an equal-weighted HIP-3 basket.
@@ -27,6 +28,7 @@ import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
 /// mock; the concrete implementation lives in {SandickVault}.
 abstract contract SandickVaultBase is ERC4626, Ownable, ReentrancyGuard, Pausable {
     using SafeERC20 for IERC20;
+    using Math for uint256;
 
     /// @notice Strategy key permitted to trade (but never to move funds out).
     address public manager;
@@ -74,6 +76,31 @@ abstract contract SandickVaultBase is ERC4626, Ownable, ReentrancyGuard, Pausabl
     /// @notice USDC reserved for claims; excluded from NAV and idle liquidity.
     uint256 public reservedAssets;
 
+    // --- Fees (all charged as dilution shares; no USDC ever leaves the vault) ---
+    // Management + performance fees mint shares to `feeRecipient` (a treasury),
+    // so the "manager can never move funds out" invariant is untouched: the fee
+    // recipient is just another share holder who redeems like anyone else. The
+    // exit fee is retained *in the vault*, boosting NAV for the holders who stay.
+    uint256 internal constant BPS = 10_000;
+    uint256 internal constant SECONDS_PER_YEAR = 365 days;
+    /// @notice Hard caps on owner-set fees (governance can never exceed these).
+    uint16 public constant MAX_MANAGEMENT_FEE_BPS = 500; // 5%/yr
+    uint16 public constant MAX_PERFORMANCE_FEE_BPS = 3000; // 30%
+    uint16 public constant MAX_EXIT_FEE_BPS = 100; // 1%
+
+    /// @notice Treasury that receives fee shares.
+    address public feeRecipient;
+    /// @notice Annual management fee (basis points of NAV).
+    uint16 public managementFeeBps;
+    /// @notice Performance fee (basis points of gains above the high-water mark).
+    uint16 public performanceFeeBps;
+    /// @notice Exit fee (basis points), retained in the vault on redemption.
+    uint16 public exitFeeBps;
+    /// @notice High-water mark: highest net price-per-share (1e18) ever reached.
+    uint256 public highWaterMark;
+    /// @notice Timestamp the management fee was last accrued to.
+    uint256 public lastFeeAccrual;
+
     /// @dev A single order leg. Prices/sizes are in HyperCore integer units; the
     /// off-chain planner produces these from the equal-weight plan.
     struct Order {
@@ -97,6 +124,8 @@ abstract contract SandickVaultBase is ERC4626, Ownable, ReentrancyGuard, Pausabl
     event OrderCapsUpdated(uint256 maxOrderNotional, uint256 epochNotionalCap, uint64 epochLength);
     event ManagerTimeoutUpdated(uint64 timeout);
     event RedemptionBridgeForced(address indexed caller, uint256 amount);
+    event FeesAccrued(uint256 managementAssets, uint256 performanceAssets, uint256 sharesMinted);
+    event FeeConfigUpdated(address recipient, uint16 managementBps, uint16 performanceBps, uint16 exitBps);
 
     error NotManager();
     error ZeroAddress();
@@ -109,6 +138,7 @@ abstract contract SandickVaultBase is ERC4626, Ownable, ReentrancyGuard, Pausabl
     error EpochNotionalExceeded(uint256 used, uint256 cap);
     error ManagerStillActive();
     error ExceedsRedemptionDeficit(uint256 requested, uint256 deficit);
+    error FeeTooHigh();
 
     modifier onlyManager() {
         if (msg.sender != manager) revert NotManager();
@@ -126,6 +156,12 @@ abstract contract SandickVaultBase is ERC4626, Ownable, ReentrancyGuard, Pausabl
         manager = manager_;
         lastManagerAction = block.timestamp;
         managerTimeout = 7 days; // backstop opens after a week of manager silence
+
+        feeRecipient = owner_; // treasury defaults to the owner; change via setFeeConfig
+        managementFeeBps = 200; // 2%/yr
+        performanceFeeBps = 1000; // 10% over high-water mark
+        exitFeeBps = 10; // 0.1%, retained in the vault
+        lastFeeAccrual = block.timestamp;
         emit ManagerUpdated(manager_);
     }
 
@@ -200,6 +236,7 @@ abstract contract SandickVaultBase is ERC4626, Ownable, ReentrancyGuard, Pausabl
     /// @notice Escrow `shares` for asynchronous redemption.
     function requestRedeem(uint256 shares) external nonReentrant {
         if (shares == 0) revert ZeroAmount();
+        _accrueFees();
         _transfer(msg.sender, address(this), shares); // reverts if insufficient
         pendingRedeemShares[msg.sender] += shares;
         totalPendingRedeemShares += shares;
@@ -221,7 +258,11 @@ abstract contract SandickVaultBase is ERC4626, Ownable, ReentrancyGuard, Pausabl
     function fulfillRedeem(address owner, uint256 shares) public nonReentrant {
         if (shares == 0) revert ZeroAmount();
         if (pendingRedeemShares[owner] < shares) revert ExceedsPending();
-        uint256 assets = convertToAssets(shares); // price before burning
+        _accrueFees();
+        // Price at the fee-adjusted NAV, then apply the exit fee (retained in the
+        // vault) — consistent with the sync `redeem` path.
+        uint256 gross = convertToAssets(shares);
+        uint256 assets = gross - _feeOnTotal(gross, exitFeeBps);
         if (_idleAssets() < assets) revert InsufficientIdleLiquidity();
 
         pendingRedeemShares[owner] -= shares;
@@ -328,6 +369,138 @@ abstract contract SandickVaultBase is ERC4626, Ownable, ReentrancyGuard, Pausabl
         _bridgeFromCore(amount);
         emit RedemptionBridgeForced(msg.sender, amount);
         emit BridgedFromCore(amount);
+    }
+
+    // --------------------------------------------------------------------- //
+    //                                 Fees                                   //
+    // --------------------------------------------------------------------- //
+
+    /// @notice Set the fee recipient and rates (all bounded by the MAX_* caps).
+    /// Accrues at the old rates first so a rate change is never retroactive.
+    function setFeeConfig(
+        address recipient,
+        uint16 managementBps,
+        uint16 performanceBps,
+        uint16 exitBps
+    ) external onlyOwner {
+        if (recipient == address(0)) revert ZeroAddress();
+        if (
+            managementBps > MAX_MANAGEMENT_FEE_BPS
+                || performanceBps > MAX_PERFORMANCE_FEE_BPS
+                || exitBps > MAX_EXIT_FEE_BPS
+        ) revert FeeTooHigh();
+        _accrueFees();
+        feeRecipient = recipient;
+        managementFeeBps = managementBps;
+        performanceFeeBps = performanceBps;
+        exitFeeBps = exitBps;
+        emit FeeConfigUpdated(recipient, managementBps, performanceBps, exitBps);
+    }
+
+    /// @notice Net price-per-share (1e18), i.e. NAV / supply.
+    function pricePerShare() public view returns (uint256) {
+        uint256 supply = totalSupply();
+        return supply == 0 ? 0 : totalAssets().mulDiv(1e18, supply);
+    }
+
+    /// @notice Poke fee accrual (permissionless; anyone can keep the books current).
+    function accrueFees() external {
+        _accrueFees();
+    }
+
+    /// @dev Accrue management + performance fees as dilution shares to the
+    /// treasury. Management fee streams on NAV pro-rata to elapsed time;
+    /// performance fee takes a cut of any gain in price-per-share above the
+    /// high-water mark. Minting shares keeps NAV constant and dilutes existing
+    /// holders by exactly the fee value — no USDC moves. Called before every
+    /// deposit/withdraw/redeem and queue action so share price is fee-correct.
+    function _accrueFees() internal {
+        uint256 ts = block.timestamp;
+        uint256 elapsed = ts - lastFeeAccrual;
+        lastFeeAccrual = ts;
+
+        uint256 supply = totalSupply();
+        uint256 nav = totalAssets();
+        if (supply == 0 || nav == 0) return;
+
+        uint256 pps = nav.mulDiv(1e18, supply);
+        if (highWaterMark == 0) {
+            highWaterMark = pps; // establish the baseline (still charges mgmt below)
+        }
+
+        uint256 mgmtAssets =
+            elapsed == 0 ? 0 : (nav * elapsed).mulDiv(managementFeeBps, BPS * SECONDS_PER_YEAR);
+
+        uint256 perfAssets = 0;
+        if (pps > highWaterMark) {
+            uint256 gain = (pps - highWaterMark).mulDiv(supply, 1e18);
+            perfAssets = gain.mulDiv(performanceFeeBps, BPS);
+        }
+
+        uint256 feeAssets = mgmtAssets + perfAssets;
+        uint256 minted = 0;
+        if (feeAssets > 0 && feeAssets < nav && feeRecipient != address(0)) {
+            // shares whose value equals feeAssets at the post-mint price
+            minted = feeAssets.mulDiv(supply, nav - feeAssets);
+            if (minted > 0) _mint(feeRecipient, minted);
+        }
+
+        // The realized (post-fee) price-per-share is the new high-water mark.
+        uint256 newPps = nav.mulDiv(1e18, totalSupply());
+        if (newPps > highWaterMark) highWaterMark = newPps;
+        emit FeesAccrued(mgmtAssets, perfAssets, minted);
+    }
+
+    // Exit fee, applied on the way out (OZ ERC4626Fees-style). The fee stays in
+    // the vault, so redeemers pay a small premium that accrues to the holders
+    // who remain — and it discourages churn / gaming the redemption queue.
+    function _feeOnRaw(uint256 assets, uint256 feeBps) internal pure returns (uint256) {
+        return assets.mulDiv(feeBps, BPS, Math.Rounding.Ceil);
+    }
+
+    function _feeOnTotal(uint256 assets, uint256 feeBps) internal pure returns (uint256) {
+        return assets.mulDiv(feeBps, feeBps + BPS, Math.Rounding.Ceil);
+    }
+
+    /// @inheritdoc ERC4626
+    function previewWithdraw(uint256 assets) public view override returns (uint256) {
+        return super.previewWithdraw(assets + _feeOnRaw(assets, exitFeeBps));
+    }
+
+    /// @inheritdoc ERC4626
+    function previewRedeem(uint256 shares) public view override returns (uint256) {
+        uint256 assets = super.previewRedeem(shares);
+        return assets - _feeOnTotal(assets, exitFeeBps);
+    }
+
+    // Accrue management/performance fees before any value-changing user action so
+    // shares are always priced at the fee-adjusted NAV.
+    function deposit(uint256 assets, address receiver) public override returns (uint256) {
+        _accrueFees();
+        return super.deposit(assets, receiver);
+    }
+
+    function mint(uint256 shares, address receiver) public override returns (uint256) {
+        _accrueFees();
+        return super.mint(shares, receiver);
+    }
+
+    function withdraw(uint256 assets, address receiver, address owner)
+        public
+        override
+        returns (uint256)
+    {
+        _accrueFees();
+        return super.withdraw(assets, receiver, owner);
+    }
+
+    function redeem(uint256 shares, address receiver, address owner)
+        public
+        override
+        returns (uint256)
+    {
+        _accrueFees();
+        return super.redeem(shares, receiver, owner);
     }
 
     // --------------------------------------------------------------------- //
