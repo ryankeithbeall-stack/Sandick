@@ -1,5 +1,3 @@
-# 🏳️‍🌈 Scott is gay 🏳️‍🌈
-
 # Sandick — HIP-3 equal-weighted basket vault
 
 Tooling for an **admin-managed, equal-weighted basket vault** on Hyperliquid
