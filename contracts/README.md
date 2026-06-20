@@ -13,7 +13,9 @@ builder dex) through the **CoreWriter** system contract.
 - Depositors deposit USDC and receive transferable ERC-20 (ERC-4626) shares.
 - The **vault contract custodies all funds** and is itself the HyperCore trading
   account (CoreWriter attributes actions to `msg.sender` = the contract).
-- The **only** way assets leave is `withdraw`/`redeem`, paid pro-rata to shares.
+- Assets leave only via `withdraw`/`redeem` (sync, capped to idle liquidity) or
+  the **async redemption queue** (`requestRedeem` → `fulfillRedeem` → `claim`),
+  always pro-rata to shares.
 - The **manager** (strategy key) may only (a) submit orders on **allow-listed**
   assets and (b) move funds between the vault's *own* HyperEVM/HyperCore
   balances. It can never transfer funds to itself. Worst-case manager abuse is
@@ -50,8 +52,23 @@ test/
   equity computation (critical: NAV must be on-chain, never manager-set).
 - USDC's exact system address (`0x20…<tokenIndex>`), Core token index, and the
   EVM↔Core decimal scale (`coreScale`) — read from live `spotMeta`.
-- That the async withdrawal model (currently: cap to idle liquidity) is replaced
-  by a proper request/settle redemption queue.
+## Async redemption queue
+
+Because CoreWriter is asynchronous, the vault cannot unwind HyperCore positions
+inside a `withdraw` call. Two exit paths:
+
+- **Sync** `withdraw`/`redeem` — capped to idle (unreserved) HyperEVM liquidity.
+- **Async** for larger exits:
+  1. `requestRedeem(shares)` escrows the shares in the vault.
+  2. The manager unwinds positions and `bridgeFromCore`s USDC over later blocks.
+  3. `fulfillRedeem(owner, shares)` — **permissionless** once idle funds exist —
+     prices the shares at the *current* NAV, burns them, and reserves the USDC.
+  4. `claim()` pays out the reserved USDC.
+
+Shares are priced at **fulfillment**, so a redeemer bears market moves until
+funds are available (not the remaining holders). Reserved assets are excluded
+from NAV and protected from sync withdrawals. Fulfillment being permissionless
+means the manager can never block an exit once liquidity is present.
 
 ## Build & test (no Foundry required)
 
