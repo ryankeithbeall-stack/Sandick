@@ -40,6 +40,8 @@ async function main() {
       await usdc.send(deployer, "mint", [a(u), 1_000_000n * USDC]);
       await usdc.send(u, "approve", [a(vault.address), (1n << 255n)]);
     }
+    // Base accounting tests run with fees OFF; dedicated fee tests re-enable them.
+    await vault.send(owner, "setFeeConfig", [a(owner), 0, 0, 0]);
     return { vm, usdc, core, vault };
   }
 
@@ -332,6 +334,84 @@ async function main() {
     assert.equal(await vault.call("managerIsDark"), false);
     const deficit = await vault.call("redemptionDeficit");
     await assert.rejects(() => vault.send(bob, "bridgeFromCoreForRedemptions", [deficit]));
+  });
+
+  const YEAR = 365n * 24n * 60n * 60n;
+  // Value of an account's shares, in USDC.
+  const shareValue = (vault, who) =>
+    vault.call("balanceOf", [a(who)]).then((s) => vault.call("convertToAssets", [s]));
+
+  await test("fee defaults are set at deployment", async () => {
+    const { usdc } = await fixture();
+    const core = await deploy(usdc.vm, artifacts.MockCore, [a(usdc.address)]);
+    const v = await deploy(usdc.vm, artifacts.MockSandickVault, [
+      a(usdc.address), a(manager), a(owner), a(core.address),
+    ]);
+    assert.equal(await v.call("managementFeeBps"), 200n);
+    assert.equal(await v.call("performanceFeeBps"), 1000n);
+    assert.equal(await v.call("exitFeeBps"), 10n);
+    assert.equal(a(await v.call("feeRecipient")), a(owner));
+  });
+
+  await test("fee config is owner-only and capped", async () => {
+    const { vault } = await fixture();
+    await assert.rejects(() => vault.send(alice, "setFeeConfig", [a(owner), 100, 100, 1]));
+    await assert.rejects(() => vault.send(owner, "setFeeConfig", [a(owner), 600, 0, 0]));   // mgmt > 5%
+    await assert.rejects(() => vault.send(owner, "setFeeConfig", [a(owner), 0, 4000, 0]));  // perf > 30%
+    await assert.rejects(() => vault.send(owner, "setFeeConfig", [a(owner), 0, 0, 200]));   // exit > 1%
+    const ZERO = "0x" + "00".repeat(20);
+    await assert.rejects(() => vault.send(owner, "setFeeConfig", [ZERO, 0, 0, 0]));
+  });
+
+  await test("management fee accrues over time as dilution shares", async () => {
+    const { vault } = await fixture();
+    await vault.send(owner, "setFeeConfig", [a(owner), 200, 0, 0]); // 2%/yr, mgmt only
+    await vault.send(alice, "deposit", [1000n * USDC, a(alice)]);
+
+    warp(vault.vm, YEAR);
+    await vault.send(owner, "accrueFees", []);
+
+    // ~2% of the $1000 NAV is now owned by the treasury (owner), the rest alice's.
+    const treasury = await shareValue(vault, owner);
+    const aliceVal = await shareValue(vault, alice);
+    assert.ok(treasury >= 198n * USDC / 10n && treasury <= 202n * USDC / 10n, `treasury ${treasury}`);
+    assert.ok(aliceVal >= 979n * USDC && aliceVal <= 981n * USDC, `alice ${aliceVal}`);
+  });
+
+  await test("performance fee charges only gains above the high-water mark", async () => {
+    const { core, vault } = await fixture();
+    await vault.send(owner, "setFeeConfig", [a(owner), 0, 1000, 0]); // 10% perf only
+    await vault.send(alice, "deposit", [1000n * USDC, a(alice)]);
+    await vault.send(manager, "bridgeToCore", [1000n * USDC]);
+    await vault.send(owner, "accrueFees", []); // sets HWM at the $1000 baseline
+
+    // +$200 of PnL on Core -> share price makes a new high
+    await core.send(deployer, "setEquity", [a(vault.address), 1200n * USDC]);
+    await vault.send(owner, "accrueFees", []);
+    const treasury1 = await shareValue(vault, owner);
+    assert.ok(treasury1 >= 199n * USDC / 10n && treasury1 <= 201n * USDC / 10n, `perf fee ${treasury1}`);
+
+    // accruing again with no new high charges nothing more
+    await vault.send(owner, "accrueFees", []);
+    const treasury2 = await shareValue(vault, owner);
+    assert.ok(treasury2 <= treasury1 + USDC / 100n, `no double charge: ${treasury1} -> ${treasury2}`);
+  });
+
+  await test("exit fee is retained in the vault for remaining holders", async () => {
+    const { usdc, vault } = await fixture();
+    await vault.send(owner, "setFeeConfig", [a(owner), 0, 0, 10]); // 0.1% exit only
+    await vault.send(alice, "deposit", [1000n * USDC, a(alice)]);
+    await vault.send(bob, "deposit", [1000n * USDC, a(bob)]);
+
+    const before = await usdc.call("balanceOf", [a(alice)]);
+    const shares = await vault.call("balanceOf", [a(alice)]);
+    await vault.send(alice, "redeem", [shares, a(alice), a(alice)]);
+    const got = (await usdc.call("balanceOf", [a(alice)])) - before;
+
+    // alice paid ~0.1% to exit; bob (the remaining holder) is now worth >$1000
+    assert.ok(got < 1000n * USDC && got >= 9985n * USDC / 10n, `alice got ${got}`);
+    const bobVal = await shareValue(vault, bob);
+    assert.ok(bobVal > 1000n * USDC, `bob should gain the exit fee, got ${bobVal}`);
   });
 
   await test("manager has no path to extract funds", async () => {

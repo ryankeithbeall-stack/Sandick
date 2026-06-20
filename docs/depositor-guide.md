@@ -56,6 +56,23 @@ backstop, if the manager key is inactive for `managerTimeout` (default ~7 days),
 the USDC your queued exit is owed (capped to that amount), then `fulfillRedeem` +
 `claim`. So an absent manager can delay your exit but can never trap it.
 
+## Fees
+
+Three fees, default **2%/yr management · 10% performance · 0.1% exit**:
+
+- **Management** (2%/yr) — a steady fee on assets under management.
+- **Performance** (10%) — charged only on profits that take the share price to a
+  **new all-time high** (a high-water mark), so you never pay twice for the same
+  gains or pay on a mere recovery.
+- **Exit** (0.1%) — a small fee when you redeem, which **stays in the vault** and
+  benefits the holders who remain.
+
+Management and performance fees are paid by minting a few **shares** to the
+treasury (dilution) — **no USDC is ever moved out of the vault**, so the custody
+guarantees above are untouched. The treasury simply holds shares and redeems them
+like any other holder. All rates are owner-set but hard-capped in the contract
+(management ≤ 5%, performance ≤ 30%, exit ≤ 1%).
+
 ## Why the UI says "pending → claimable," not "done"
 
 HyperCore actions (the bridge, the order fills) are **asynchronous and can fail
