@@ -34,7 +34,9 @@ yet. Remaining to make it live:
       for the live wiring).
 
 ## 2. Testnet sign-off (chainid 998) 🔴
-The architecture is simulation-tested only. Prove the live round-trip:
+The architecture is simulation-tested only. Prove the live round-trip — a
+step-by-step runbook for all of this now lives in
+[`docs/testnet-signoff.md`](docs/testnet-signoff.md):
 
 - [ ] Deploy via `sandick.deploy_config` + `scripts/deploy.js` to testnet.
 - [ ] **Seed the vault's Core account** before opening deposits (fresh-account
