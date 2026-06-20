@@ -52,16 +52,22 @@ The architecture is simulation-tested only. Prove the live round-trip:
 ## 4. Contract hardening 🟠
 - [ ] **NAV completeness**: add the spot-balance precompile so USDC parked in
       spot mid-bridge is counted (today only perp `accountValue` + idle EVM).
-- [ ] **Pausability / circuit breaker** (owner can pause deposits/trading).
-- [ ] **Per-tx and per-epoch caps** on manager order notional (defense in depth).
+- [x] **Pausability / circuit breaker** (owner pauses deposits/trading; exits
+      stay open). `pause`/`unpause` in `SandickVaultBase`.
+- [x] **Per-tx and per-epoch caps** on manager order notional (`setOrderCaps`).
 - [ ] Decide whether `bridgeFromCore` should be partially permissionless to
       guarantee redemption liveness if the manager goes dark.
-- [ ] Handle negative/under-water `accountValue` and stale reads explicitly.
-- [ ] Events/telemetry for every state transition (subgraph-friendly).
+- [~] Handle negative/under-water `accountValue` (reader clamps to 0); **stale
+      reads** still need explicit handling.
+- [x] Events/telemetry for every state transition (subgraph-friendly) — incl.
+      `OrderCapsUpdated` + OZ `Paused`/`Unpaused`.
+- [~] **NAV completeness**: `_coreSpotUsd()` hook now folded into `totalAssets`
+      (default 0); wiring the real spot-balance precompile remains.
 
 ## 5. Operations / keeper 🟠
-- [ ] **Manager keeper bot**: schedule rebalances, maintain an idle-liquidity
-      buffer for redemptions, drive the multi-block bridge/unwind for the queue.
+- [~] **Manager keeper bot**: pure decision logic landed in `sandick/keeper.py`
+      (idle-buffer / bridge-back sizing + drift-based rebalance signal, tested);
+      the bot wiring (reads, submits, retries) remains.
 - [ ] **Verification reads**: after each CoreWriter submit, confirm fills via
       read precompiles / API (silent-failure handling), retry/alert on misses.
 - [ ] Monitoring + alerting (NAV drift, failed actions, low buffer, drawdown).
@@ -72,15 +78,17 @@ The architecture is simulation-tested only. Prove the live round-trip:
 - [ ] Confirm the vault's EVM USDC token is 6-decimal (else adjust `coreScale`).
 
 ## 7. Engineering hygiene 🟢
-- [ ] CI: run `pytest` + `npm run test:contracts` on every push.
+- [x] CI: run `ruff` + `pytest` + `npm run test:contracts` on every push
+      (`.github/workflows/ci.yml`).
 - [ ] Foundry test suite (mirrors the ethereumjs tests) for auditor familiarity.
 - [ ] Fork/integration tests against a HyperEVM testnet fork if tooling allows.
-- [ ] Linting/formatting (ruff/black for Python, forge fmt/solhint for Solidity).
+- [x] Linting/formatting for Python (ruff, configured in `pyproject.toml`).
+- [ ] Solidity formatting/linting (forge fmt / solhint).
 
 ## 8. Product / economics 🟢
 - [ ] Fee model (management/performance) if desired — currently none on-chain.
 - [ ] Deposit caps / whitelisting if access control is wanted later.
-- [ ] Docs: depositor-facing explainer + risk disclosures.
+- [x] Docs: depositor-facing explainer + risk disclosures (`docs/`).
 
 ---
 
@@ -89,5 +97,7 @@ Discovery · basket builder (equal/weighted/grouped) · planner + dry-run · sav
 plan artifact · off-chain execution CLI (`verify`/`run`) · on-chain ERC-4626
 vault (custody, trade-only manager + allow-list, NAV via `accountMarginSummary`
 precompile, async redemption queue) · rebalance (delta, reduce-only) · HIP-3
-asset-id / 1e8 encoding bridge · deploy + calibration scripts. All tested
-(62 Python + 12 contract).
+asset-id / 1e8 encoding bridge · deploy + calibration scripts · owner pause +
+order-notional caps · spot-NAV hook · keeper decision logic · front-end
+(demo) + viem chain layer · CI + ruff · depositor docs. All tested
+(72 Python + 15 contract).

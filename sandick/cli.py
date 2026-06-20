@@ -29,7 +29,7 @@ def _fmt_usd(x: float) -> str:
 def render_plan(plan: AllocationPlan) -> str:
     lines = []
     lines.append("=" * 78)
-    lines.append(f"  SANDICK HIP-3 VAULT — EQUAL-WEIGHTED PLAN  (DRY RUN — no orders sent)")
+    lines.append("  SANDICK HIP-3 VAULT — EQUAL-WEIGHTED PLAN  (DRY RUN — no orders sent)")
     lines.append("=" * 78)
     lines.append(
         f"  Basket: {plan.basket.name}    Dex: {plan.basket.dex or '(core)'}    "

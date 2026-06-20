@@ -7,6 +7,7 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
 
 /// @title SandickVaultBase
 /// @notice Trustless, tokenized HyperEVM vault for an equal-weighted HIP-3 basket.
@@ -24,7 +25,7 @@ import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol
 /// HyperCore integration (CoreWriter actions + read precompiles) is abstracted
 /// behind the `_core*` hooks so the accounting/trust logic is testable against a
 /// mock; the concrete implementation lives in {SandickVault}.
-abstract contract SandickVaultBase is ERC4626, Ownable, ReentrancyGuard {
+abstract contract SandickVaultBase is ERC4626, Ownable, ReentrancyGuard, Pausable {
     using SafeERC20 for IERC20;
 
     /// @notice Strategy key permitted to trade (but never to move funds out).
@@ -32,6 +33,24 @@ abstract contract SandickVaultBase is ERC4626, Ownable, ReentrancyGuard {
 
     /// @notice Assets (HyperCore asset ids) the manager is allowed to trade.
     mapping(uint32 => bool) public allowedAsset;
+
+    // --- Manager order caps (defense in depth) ---
+    // Bounds on the raw notional of a single order leg (`limitPx * sz`, in
+    // HyperCore integer units) and on the cumulative notional submitted within a
+    // rolling epoch. A cap of 0 disables that check; `epochLength` of 0 disables
+    // the epoch accounting entirely. Caps never let the manager move funds out —
+    // they only narrow how aggressively a compromised/misbehaving manager key can
+    // churn the book before the owner can rotate it or pause.
+    /// @notice Max raw notional (`limitPx * sz`) for any single order leg (0 = off).
+    uint256 public maxOrderNotional;
+    /// @notice Max cumulative order notional within one epoch (0 = off).
+    uint256 public epochNotionalCap;
+    /// @notice Length of the rolling notional epoch in seconds (0 = off).
+    uint64 public epochLength;
+    /// @notice Start timestamp of the current epoch.
+    uint256 public epochStart;
+    /// @notice Order notional consumed in the current epoch.
+    uint256 public epochNotionalUsed;
 
     // --- Async redemption queue (ERC-7540-style) ---
     /// @notice Shares escrowed in the vault awaiting fulfillment, per owner.
@@ -63,6 +82,7 @@ abstract contract SandickVaultBase is ERC4626, Ownable, ReentrancyGuard {
     event RedeemRequestCancelled(address indexed owner, uint256 shares);
     event RedeemFulfilled(address indexed owner, uint256 shares, uint256 assets);
     event RedeemClaimed(address indexed owner, uint256 assets);
+    event OrderCapsUpdated(uint256 maxOrderNotional, uint256 epochNotionalCap, uint64 epochLength);
 
     error NotManager();
     error ZeroAddress();
@@ -71,6 +91,8 @@ abstract contract SandickVaultBase is ERC4626, Ownable, ReentrancyGuard {
     error ExceedsPending();
     error InsufficientIdleLiquidity();
     error NothingClaimable();
+    error OrderNotionalExceeded(uint32 assetId, uint256 notional, uint256 cap);
+    error EpochNotionalExceeded(uint256 used, uint256 cap);
 
     modifier onlyManager() {
         if (msg.sender != manager) revert NotManager();
@@ -93,11 +115,12 @@ abstract contract SandickVaultBase is ERC4626, Ownable, ReentrancyGuard {
     //                                  NAV                                   //
     // --------------------------------------------------------------------- //
 
-    /// @notice Vault NAV = idle USDC on HyperEVM + equity on HyperCore (margin +
-    /// unrealized PnL), denominated in the underlying asset's units. Excludes
-    /// assets already reserved for queued redemptions (those belong to claimers).
+    /// @notice Vault NAV = idle USDC on HyperEVM + equity on HyperCore (perp margin
+    /// + unrealized PnL) + any USDC parked in the Core spot account mid-bridge,
+    /// denominated in the underlying asset's units. Excludes assets already
+    /// reserved for queued redemptions (those belong to claimers).
     function totalAssets() public view override returns (uint256) {
-        return _idleAssets() + _coreEquityUsd();
+        return _idleAssets() + _coreEquityUsd() + _coreSpotUsd();
     }
 
     /// @dev Inflation/donation-attack mitigation via virtual shares.
@@ -108,6 +131,16 @@ abstract contract SandickVaultBase is ERC4626, Ownable, ReentrancyGuard {
     /// @dev Unreserved USDC held on HyperEVM (claim-reserved funds excluded).
     function _idleAssets() internal view returns (uint256) {
         return IERC20(asset()).balanceOf(address(this)) - reservedAssets;
+    }
+
+    /// @dev Deposits/mints are pausable; exits (withdraw/redeem/claim) never are,
+    /// so a pause can never trap depositor funds.
+    function _deposit(address caller, address receiver, uint256 assets, uint256 shares)
+        internal
+        override
+        whenNotPaused
+    {
+        super._deposit(caller, receiver, assets, shares);
     }
 
     // --------------------------------------------------------------------- //
@@ -190,21 +223,43 @@ abstract contract SandickVaultBase is ERC4626, Ownable, ReentrancyGuard {
     //                      Manager actions (trade-only)                      //
     // --------------------------------------------------------------------- //
 
-    /// @notice Submit the basket's order legs to HyperCore. Manager-only and
-    /// restricted to allow-listed assets. Moves no funds out of the vault.
-    function submitBasket(Order[] calldata orders) external onlyManager nonReentrant {
+    /// @notice Submit the basket's order legs to HyperCore. Manager-only,
+    /// restricted to allow-listed assets, bounded by the per-order/per-epoch
+    /// notional caps, and disabled while paused. Moves no funds out of the vault.
+    function submitBasket(Order[] calldata orders) external onlyManager nonReentrant whenNotPaused {
+        // Roll the epoch window forward if it has elapsed.
+        if (epochLength != 0 && block.timestamp >= epochStart + epochLength) {
+            epochStart = block.timestamp;
+            epochNotionalUsed = 0;
+        }
+
         uint256 n = orders.length;
+        uint256 batchNotional;
         for (uint256 i; i < n; ++i) {
             Order calldata o = orders[i];
             if (!allowedAsset[o.assetId]) revert AssetNotAllowed(o.assetId);
+
+            uint256 ntl = uint256(o.limitPx) * uint256(o.sz);
+            if (maxOrderNotional != 0 && ntl > maxOrderNotional) {
+                revert OrderNotionalExceeded(o.assetId, ntl, maxOrderNotional);
+            }
+            batchNotional += ntl;
+
             _submitOrder(o);
             emit OrderSubmitted(o.assetId, o.isBuy, o.limitPx, o.sz, o.reduceOnly);
+        }
+
+        if (epochNotionalCap != 0) {
+            epochNotionalUsed += batchNotional;
+            if (epochNotionalUsed > epochNotionalCap) {
+                revert EpochNotionalExceeded(epochNotionalUsed, epochNotionalCap);
+            }
         }
         emit BasketSubmitted(n);
     }
 
     /// @notice Move idle USDC from HyperEVM into the vault's HyperCore account.
-    function bridgeToCore(uint256 amount) external onlyManager nonReentrant {
+    function bridgeToCore(uint256 amount) external onlyManager nonReentrant whenNotPaused {
         _bridgeToCore(amount);
         emit BridgedToCore(amount);
     }
@@ -230,12 +285,47 @@ abstract contract SandickVaultBase is ERC4626, Ownable, ReentrancyGuard {
         emit AssetAllowed(assetId, ok);
     }
 
+    /// @notice Configure the manager order-notional caps (all in HyperCore integer
+    /// units; 0 disables the corresponding check). Setting `epochLength` resets the
+    /// running epoch so a fresh window starts immediately.
+    function setOrderCaps(uint256 maxOrderNotional_, uint256 epochNotionalCap_, uint64 epochLength_)
+        external
+        onlyOwner
+    {
+        maxOrderNotional = maxOrderNotional_;
+        epochNotionalCap = epochNotionalCap_;
+        epochLength = epochLength_;
+        epochStart = block.timestamp;
+        epochNotionalUsed = 0;
+        emit OrderCapsUpdated(maxOrderNotional_, epochNotionalCap_, epochLength_);
+    }
+
+    /// @notice Pause deposits/mints and manager trading (submitBasket, bridgeToCore).
+    /// Exits — withdraw, redeem, the async queue, claim, and bridgeFromCore — stay
+    /// open, so a pause can shrink risk without ever trapping depositor funds.
+    function pause() external onlyOwner {
+        _pause();
+    }
+
+    function unpause() external onlyOwner {
+        _unpause();
+    }
+
     // --------------------------------------------------------------------- //
     //                  HyperCore integration hooks (virtual)                 //
     // --------------------------------------------------------------------- //
 
     /// @return equity HyperCore perp account value in underlying units (margin + uPnL).
     function _coreEquityUsd() internal view virtual returns (uint256 equity);
+
+    /// @notice USDC sitting in the vault's HyperCore *spot* account (e.g. parked
+    /// mid-bridge between EVM and the perp margin account), in underlying units.
+    /// @dev Defaults to 0 — overridden by deployments that wire the spot-balance
+    /// read precompile so in-flight USDC is never dropped from NAV. Counting it
+    /// keeps share price continuous across the multi-block bridge.
+    function _coreSpotUsd() internal view virtual returns (uint256) {
+        return 0;
+    }
 
     function _submitOrder(Order calldata order) internal virtual;
 
