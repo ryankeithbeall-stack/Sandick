@@ -20,12 +20,27 @@ const ACCOUNTS = {
   owner: addr(0x55),
 };
 
+// Opt-in coverage: when a collector is active (scripts/coverage_run.js sets the
+// global handle), record every executed program counter per code address.
+function coverageCollector() {
+  return global.__SANDICK_COVERAGE__ || null;
+}
+
 async function makeVM() {
   const common = new Common({ chain: Mainnet, hardfork: Hardfork.Shanghai });
   const vm = await createVM({ common });
   // Fund accounts so any value/gas accounting passes.
   for (const a of Object.values(ACCOUNTS)) {
     await vm.stateManager.putAccount(a, new Account(0n, 10n ** 24n));
+  }
+  const cov = coverageCollector();
+  if (cov) {
+    const scope = cov.newScope();
+    vm.__covScope = scope;
+    vm.evm.events.on("step", (data, next) => {
+      cov.record(scope, data.address.toString(), data.pc);
+      if (typeof next === "function") next();
+    });
   }
   return vm;
 }
@@ -41,6 +56,8 @@ async function deploy(vm, art, args, from = ACCOUNTS.deployer) {
     throw new Error("deploy reverted: " + JSON.stringify(res.execResult.exceptionError));
   }
   const address = res.createdAddress;
+  const cov = coverageCollector();
+  if (cov && art.name && vm.__covScope) cov.register(vm.__covScope, address.toString(), art.name);
   return new Contract(vm, address, iface);
 }
 

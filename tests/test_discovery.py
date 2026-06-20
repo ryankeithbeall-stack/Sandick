@@ -13,6 +13,24 @@ def test_parse_perp_dexs_maps_null_to_core():
     assert parse_perp_dexs([None, {"name": "sandick"}, {"name": "foo"}]) == ["", "sandick", "foo"]
 
 
+def test_parse_perp_dexs_handles_plain_string_entries():
+    # Some responses may carry bare names rather than dicts.
+    assert parse_perp_dexs([None, "sandick"]) == ["", "sandick"]
+    assert parse_perp_dexs(None) == []
+
+
+def test_discover_assets_can_exclude_core(install_hyperliquid):
+    from sandick.discovery import discover_assets
+
+    install_hyperliquid(
+        perp_dexs=[None, {"name": "tradexyz"}],
+        meta={"universe": [{"name": "SNDK", "szDecimals": 2, "maxLeverage": 5}]},
+    )
+    catalog = discover_assets(mainnet=False, include_core=False)
+    assert "" not in catalog  # core dex skipped
+    assert "tradexyz" in catalog
+
+
 def test_parse_meta_universe_skips_delisted_and_bad():
     meta = {
         "universe": [

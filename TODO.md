@@ -1,7 +1,7 @@
 # Sandick — Outstanding TODO
 
 Status of the HIP-3 equal-weighted basket vault. What's **done** is tested
-(62 Python + 12 contract tests); what's below is what remains before this can
+(129 Python + 13 contract tests); what's below is what remains before this can
 hold real money, plus the product surface that doesn't exist yet.
 
 Legend: 🔴 blocker for mainnet · 🟠 important · 🟢 nice-to-have
