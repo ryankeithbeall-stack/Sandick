@@ -1,0 +1,10 @@
+{
+  "_comment": "Illustrative mark prices (USD) for dry-runs only. Edit these or use --live to pull real mids from the HIP-3 dex. Keys must match the 'coin' values in sandick.basket.json.",
+  "SNDK": 50.00,
+  "ALAB": 80.00,
+  "NBIS": 50.00,
+  "DELL": 120.00,
+  "INTC": 22.00,
+  "CRWV": 140.00,
+  "KIOXIA": 13.00
+}
