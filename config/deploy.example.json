@@ -6,12 +6,12 @@
   "perpDexIndex": 1,
   "assetIds": {
     "SNDK": 110000,
-    "ALAB": 110001,
+    "ARM": 110001,
     "NBIS": 110002,
     "DELL": 110003,
     "INTC": 110004,
     "CRWV": 110005,
-    "KIOXIA": 110006
+    "SKHYNIX": 110006
   },
   "marginSummaryPrecompile": "0x000000000000000000000000000000000000080F",
   "usdcCoreTokenIndex": 0,

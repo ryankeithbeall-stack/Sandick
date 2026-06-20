@@ -29,8 +29,8 @@ def _write_deploy(tmp_path, asset_ids):
 
 def _full_ids():
     # mirrors config/deploy.example.json coin set
-    return {"SNDK": 110000, "ALAB": 110001, "NBIS": 110002, "DELL": 110003,
-            "INTC": 110004, "CRWV": 110005, "KIOXIA": 110006}
+    return {"SNDK": 110000, "ARM": 110001, "NBIS": 110002, "DELL": 110003,
+            "INTC": 110004, "CRWV": 110005, "SKHYNIX": 110006}
 
 
 # ── config assembly ─────────────────────────────────────────────
@@ -44,8 +44,8 @@ def test_load_keeper_inputs_from_artifacts(tmp_path):
 
 
 def test_load_keeper_inputs_missing_asset_id_raises(tmp_path):
-    partial = {k: v for k, v in _full_ids().items() if k != "KIOXIA"}
-    with pytest.raises(KeyError, match="KIOXIA"):
+    partial = {k: v for k, v in _full_ids().items() if k != "SKHYNIX"}
+    with pytest.raises(KeyError, match="SKHYNIX"):
         load_keeper_inputs(BASKET, _write_deploy(tmp_path, partial))
 
 

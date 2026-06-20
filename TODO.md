@@ -92,7 +92,7 @@ step-by-step runbook for all of this now lives in
 - [ ] Monitoring + alerting (NAV drift, failed actions, low buffer, drawdown).
 
 ## 6. Config / data 🟠
-- [ ] Replace placeholder coin symbols (e.g. `KIOXIA`) and the `tradexyz` dex
+- [ ] Replace placeholder coin symbols (e.g. `SKHYNIX`) and the `tradexyz` dex
       name with the **real Trade.xyz dex name + symbols** once known.
 - [ ] Confirm the vault's EVM USDC token is 6-decimal (else adjust `coreScale`).
 

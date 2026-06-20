@@ -4,11 +4,11 @@
   "description": "Equal-weighted basket of 7 AI / data-center / storage names whose logos spell SANDICK. Traded as HIP-3 (builder-deployed) perps on the Trade.xyz dex. Replace 'dex' and 'coin' values with the real Trade.xyz dex name and symbols.",
   "assets": [
     { "company": "SanDisk",     "ticker": "SNDK", "coin": "SNDK", "sz_decimals": 2 },
-    { "company": "Astera Labs", "ticker": "ALAB", "coin": "ALAB", "sz_decimals": 2 },
+    { "company": "Arm Holdings","ticker": "ARM",  "coin": "ARM",  "sz_decimals": 2 },
     { "company": "Nebius",      "ticker": "NBIS", "coin": "NBIS", "sz_decimals": 2 },
     { "company": "Dell",        "ticker": "DELL", "coin": "DELL", "sz_decimals": 2 },
     { "company": "Intel",       "ticker": "INTC", "coin": "INTC", "sz_decimals": 1 },
     { "company": "CoreWeave",   "ticker": "CRWV", "coin": "CRWV", "sz_decimals": 2 },
-    { "company": "Kioxia",      "ticker": "285A", "coin": "KIOXIA", "sz_decimals": 2 }
+    { "company": "SK Hynix",    "ticker": "000660", "coin": "SKHYNIX", "sz_decimals": 2 }
   ]
 }

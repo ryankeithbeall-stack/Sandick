@@ -17,15 +17,15 @@ markets.
 The **SANDICK** basket below is just the shipped example: the seven AI /
 data-center / storage names whose logos spell **S A N D I C K**.
 
-| Company    | Ticker | Coin (perp) |
-|------------|--------|-------------|
-| SanDisk    | SNDK   | `SNDK`      |
-| Astera Labs| ALAB   | `ALAB`      |
-| Nebius     | NBIS   | `NBIS`      |
-| Dell       | DELL   | `DELL`      |
-| Intel      | INTC   | `INTC`      |
-| CoreWeave  | CRWV   | `CRWV`      |
-| Kioxia     | 285A   | `KIOXIA`    |
+| Company     | Ticker | Coin (perp) |
+|-------------|--------|-------------|
+| SanDisk     | SNDK   | `SNDK`      |
+| Arm Holdings| ARM    | `ARM`       |
+| Nebius      | NBIS   | `NBIS`      |
+| Dell        | DELL   | `DELL`      |
+| Intel       | INTC   | `INTC`      |
+| CoreWeave   | CRWV   | `CRWV`      |
+| SK Hynix    | 000660 | `SKHYNIX`   |
 
 Each asset receives an equal share (**1 / 7 ≈ 14.29 %**) of the gross notional.
 
@@ -63,7 +63,7 @@ python -m sandick.cli --capital 70000 --prices config/prices.example.json
 ------------------------------------------------------------------------------
   SNDK    SNDK    LONG        50.00      200.00     $10,000.00  14.29%
   ...
-  285A    KIOXIA  LONG        13.00      769.23      $9,999.99  14.29%
+  000660  SKHYNIX LONG       150.00       66.66      $9,999.00  14.29%
 ------------------------------------------------------------------------------
   Deployed margin: $69,997.39    Residual cash (rounding): $2.61
 ==============================================================================
@@ -104,7 +104,7 @@ python -m sandick.admin discover --out catalog.json
 
 # 2. Pick the assets you want -> writes an equal-weighted basket config.
 python -m sandick.admin build-basket \
-    --select SNDK,ALAB,NBIS,DELL,INTC,CRWV,KIOXIA \
+    --select SNDK,ARM,NBIS,DELL,INTC,CRWV,SKHYNIX \
     --dex sandick --name SANDICK \
     --catalog catalog.json --out config/sandick.basket.json
 

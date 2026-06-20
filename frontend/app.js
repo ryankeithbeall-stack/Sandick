@@ -16,19 +16,19 @@ const BASKET = {
   name: 'SANDICK',
   dex: 'tradexyz',
   assets: [
-    { company: 'SanDisk',     ticker: 'SNDK', coin: 'SNDK',   sz_decimals: 2 },
-    { company: 'Astera Labs', ticker: 'ALAB', coin: 'ALAB',   sz_decimals: 2 },
-    { company: 'Nebius',      ticker: 'NBIS', coin: 'NBIS',   sz_decimals: 2 },
-    { company: 'Dell',        ticker: 'DELL', coin: 'DELL',   sz_decimals: 2 },
-    { company: 'Intel',       ticker: 'INTC', coin: 'INTC',   sz_decimals: 1 },
-    { company: 'CoreWeave',   ticker: 'CRWV', coin: 'CRWV',   sz_decimals: 2 },
-    { company: 'Kioxia',      ticker: '285A', coin: 'KIOXIA', sz_decimals: 2 },
+    { company: 'SanDisk',     ticker: 'SNDK',   coin: 'SNDK',    sz_decimals: 2 },
+    { company: 'Arm Holdings',ticker: 'ARM',    coin: 'ARM',     sz_decimals: 2 },
+    { company: 'Nebius',      ticker: 'NBIS',   coin: 'NBIS',    sz_decimals: 2 },
+    { company: 'Dell',        ticker: 'DELL',   coin: 'DELL',    sz_decimals: 2 },
+    { company: 'Intel',       ticker: 'INTC',   coin: 'INTC',    sz_decimals: 1 },
+    { company: 'CoreWeave',   ticker: 'CRWV',   coin: 'CRWV',    sz_decimals: 2 },
+    { company: 'SK Hynix',    ticker: '000660', coin: 'SKHYNIX', sz_decimals: 2 },
   ],
 };
 
 const EXAMPLE_PRICES = {
-  SNDK: 50.0, ALAB: 80.0, NBIS: 50.0, DELL: 120.0,
-  INTC: 22.0, CRWV: 140.0, KIOXIA: 13.0,
+  SNDK: 50.0, ARM: 140.0, NBIS: 50.0, DELL: 120.0,
+  INTC: 22.0, CRWV: 140.0, SKHYNIX: 150.0,
 };
 
 const N = BASKET.assets.length;

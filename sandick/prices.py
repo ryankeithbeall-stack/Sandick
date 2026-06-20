@@ -28,7 +28,7 @@ def fetch_live_prices(coins: List[str], dex: str = "", mainnet: bool = True) -> 
     """Fetch live mid prices for ``coins`` from a Hyperliquid perp dex.
 
     Args:
-        coins: coin symbols to fetch (e.g. ["SNDK", "ALAB", ...]).
+        coins: coin symbols to fetch (e.g. ["SNDK", "ARM", ...]).
         dex: HIP-3 builder dex name. Empty string = the first/core perp dex.
         mainnet: use mainnet (True) or testnet (False).
 

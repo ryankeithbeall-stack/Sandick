@@ -25,8 +25,8 @@ python -m http.server 8000 --directory frontend
 ## Sections
 
 - **Hero** — the SANDICK image plus the one-line pitch and headline vault stats.
-- **Basket** — the seven names (SanDisk, Astera Labs, Nebius, Dell, Intel,
-  CoreWeave, Kioxia) whose logos spell **S A N D I C K**, each at 14.29%.
+- **Basket** — the seven names (SanDisk, Arm Holdings, Nebius, Dell, Intel,
+  CoreWeave, SK Hynix) whose logos spell **S A N D I C K**, each at 14.29%.
 - **Calculator** — a live equal-weight planner. `allocate()` in `app.js` is a
   faithful port of `sandick.allocator.build_plan` (equal-weight branch):
   `gross_notional = capital × leverage`, sizes floored to each asset's
