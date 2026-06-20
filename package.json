@@ -5,7 +5,8 @@
   "description": "HyperEVM smart-contract vault for an equal-weighted HIP-3 basket (Sandick).",
   "scripts": {
     "compile": "node scripts/compile_contracts.js",
-    "test:contracts": "node contracts/test/vault.test.js"
+    "test:contracts": "node contracts/test/vault.test.js",
+    "deploy": "node scripts/deploy.js"
   },
   "dependencies": {
     "@openzeppelin/contracts": "^5.1.0",
@@ -14,6 +15,7 @@
   "devDependencies": {
     "@ethereumjs/common": "^10.1.2",
     "@ethereumjs/util": "^10.1.2",
-    "@ethereumjs/vm": "^10.1.2"
+    "@ethereumjs/vm": "^10.1.2",
+    "ethers": "^6.17.0"
   }
 }
