@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SANDICK · HIP-3 Equal-Weighted Basket Vault</title>
+  <meta name="description" content="An admin-managed, equal-weighted basket vault on Hyperliquid HIP-3 perp markets." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <!-- ambient background -->
+  <div class="bg-grid" aria-hidden="true"></div>
+  <div class="bg-glow bg-glow--1" aria-hidden="true"></div>
+  <div class="bg-glow bg-glow--2" aria-hidden="true"></div>
+
+  <!-- ───────────────────────── Nav ───────────────────────── -->
+  <header class="nav">
+    <div class="nav__inner">
+      <a class="brand" href="#top">
+        <span class="brand__mark">◆</span>
+        <span class="brand__name">SANDICK</span>
+        <span class="brand__tag">vault</span>
+      </a>
+      <nav class="nav__links">
+        <a href="#basket">Basket</a>
+        <a href="#calculator">Calculator</a>
+        <a href="#vault">Vault</a>
+        <a href="#admin">Admin</a>
+      </nav>
+      <button class="btn btn--ghost" id="connectBtn">
+        <span class="dot"></span><span id="connectLabel">Connect wallet</span>
+      </button>
+    </div>
+  </header>
+
+  <main id="top">
+    <!-- ───────────────────────── Hero ───────────────────────── -->
+    <section class="hero">
+      <div class="hero__copy">
+        <div class="pill">
+          <span class="pill__dot"></span> Hyperliquid · HIP-3 · testnet
+        </div>
+        <h1>The basket that spells<br /><span class="grad-text">your conviction.</span></h1>
+        <p class="lede">
+          SANDICK is an admin-managed, <strong>equal-weighted</strong> vault of seven
+          AI / data-center / storage names — traded as builder-deployed perps on a
+          single HIP-3 dex. Deposit USDC, get transferable ERC-4626 shares, ride the
+          basket pro-rata. The manager can trade, but can <strong>never</strong> withdraw your funds.
+        </p>
+        <div class="hero__cta">
+          <a href="#calculator" class="btn btn--primary">Open the calculator</a>
+          <a href="#vault" class="btn btn--ghost">Deposit USDC</a>
+        </div>
+        <dl class="hero__stats">
+          <div><dt>Assets</dt><dd>7</dd></div>
+          <div><dt>Weight / leg</dt><dd>14.29%</dd></div>
+          <div><dt>Vault standard</dt><dd>ERC-4626</dd></div>
+          <div><dt>Collateral</dt><dd>USDC</dd></div>
+        </dl>
+      </div>
+
+      <figure class="hero__art">
+        <img src="assets/sandick.png" alt="The SANDICK basket: SanDisk, Astera Labs, Nebius, Dell, Intel, CoreWeave and Kioxia logos spelling S A N D I C K." />
+        <figcaption>Seven logos. One word. Equal weight.</figcaption>
+      </figure>
+    </section>
+
+    <!-- ───────────────────────── Basket ───────────────────────── -->
+    <section id="basket" class="section">
+      <div class="section__head">
+        <h2>The basket</h2>
+        <p>Each name receives an equal <strong>1 / 7 ≈ 14.29%</strong> share of gross notional.</p>
+      </div>
+      <div class="basket-grid" id="basketGrid"><!-- injected --></div>
+    </section>
+
+    <!-- ───────────────────────── Calculator ───────────────────────── -->
+    <section id="calculator" class="section">
+      <div class="section__head">
+        <h2>Equal-weight plan</h2>
+        <p>Dry-run calculator. Mirrors <code>sandick.allocator.build_plan</code> exactly — nothing is ever sent.</p>
+      </div>
+
+      <div class="calc">
+        <aside class="calc__controls card">
+          <div class="field">
+            <label for="capital">Capital <span>USDC margin</span></label>
+            <div class="input-wrap">
+              <span class="prefix">$</span>
+              <input id="capital" type="number" min="0" step="1000" value="70000" />
+            </div>
+          </div>
+
+          <div class="field">
+            <label for="leverage">Leverage <span id="levVal">1.0×</span></label>
+            <input id="leverage" type="range" min="1" max="10" step="0.5" value="1" />
+          </div>
+
+          <div class="field">
+            <label>Side</label>
+            <div class="seg" id="sideSeg" role="tablist">
+              <button class="seg__btn is-active" data-side="long">Long</button>
+              <button class="seg__btn" data-side="short">Short</button>
+            </div>
+          </div>
+
+          <div class="field field--prices">
+            <label>Mark prices <span>editable</span></label>
+            <div id="priceInputs" class="price-inputs"><!-- injected --></div>
+          </div>
+
+          <button class="btn btn--ghost btn--block" id="resetPrices">Reset example prices</button>
+        </aside>
+
+        <div class="calc__output card">
+          <div class="calc__summary" id="calcSummary"><!-- injected --></div>
+          <div class="table-wrap">
+            <table class="plan">
+              <thead>
+                <tr>
+                  <th>Ticker</th><th>Coin</th><th>Side</th>
+                  <th class="num">Price</th><th class="num">Size</th>
+                  <th class="num">Notional</th><th class="num">Margin</th><th class="num">Weight</th>
+                </tr>
+              </thead>
+              <tbody id="planBody"><!-- injected --></tbody>
+            </table>
+          </div>
+          <p class="dry-note">⚠ Dry run — this computes orders but never sends them. Live placement lives behind the execution CLI / on-chain vault.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ───────────────────────── Vault (depositor) ───────────────────────── -->
+    <section id="vault" class="section">
+      <div class="section__head">
+        <h2>Depositor app</h2>
+        <p>Deposit USDC, hold shares, redeem synchronously or via the async queue. <em>Demo state — wire to the live contract on testnet.</em></p>
+      </div>
+
+      <div class="vault">
+        <div class="vault__stats">
+          <div class="stat card"><span class="stat__k">NAV / share</span><span class="stat__v" id="navPerShare">—</span><span class="stat__d" id="navDelta"></span></div>
+          <div class="stat card"><span class="stat__k">Total assets</span><span class="stat__v" id="totalAssets">—</span><span class="stat__d">USDC equity</span></div>
+          <div class="stat card"><span class="stat__k">Your shares</span><span class="stat__v" id="yourShares">—</span><span class="stat__d" id="yourValue"></span></div>
+          <div class="stat card"><span class="stat__k">Share supply</span><span class="stat__v" id="shareSupply">—</span><span class="stat__d">SAND-LP</span></div>
+        </div>
+
+        <div class="vault__actions">
+          <div class="card actioncard">
+            <div class="seg seg--full" id="actionSeg">
+              <button class="seg__btn is-active" data-action="deposit">Deposit</button>
+              <button class="seg__btn" data-action="redeem">Redeem</button>
+            </div>
+
+            <!-- deposit -->
+            <div class="action-pane" data-pane="deposit">
+              <div class="field">
+                <label for="depositAmt">Amount <span>USDC</span></label>
+                <div class="input-wrap">
+                  <span class="prefix">$</span>
+                  <input id="depositAmt" type="number" min="0" step="100" value="1000" />
+                  <button class="max" data-max="deposit">MAX</button>
+                </div>
+                <small class="balance">Wallet: <span id="walletUsdc">10,000.00</span> USDC</small>
+              </div>
+              <div class="preview" id="depositPreview"></div>
+              <button class="btn btn--primary btn--block" id="depositBtn" disabled>Connect wallet to deposit</button>
+            </div>
+
+            <!-- redeem -->
+            <div class="action-pane is-hidden" data-pane="redeem">
+              <div class="field">
+                <label for="redeemAmt">Shares <span>SAND-LP</span></label>
+                <div class="input-wrap">
+                  <input id="redeemAmt" type="number" min="0" step="1" value="0" />
+                  <button class="max" data-max="redeem">MAX</button>
+                </div>
+                <small class="balance">Holding: <span id="redeemHolding">0.00</span> shares</small>
+              </div>
+              <div class="preview" id="redeemPreview"></div>
+              <div class="redeem-modes">
+                <button class="btn btn--primary btn--block" id="redeemSyncBtn" disabled>Redeem now (sync)</button>
+                <button class="btn btn--ghost btn--block" id="redeemAsyncBtn" disabled>Request redeem (async queue)</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- async queue -->
+          <div class="card queuecard">
+            <h3>Redemption queue</h3>
+            <p class="muted">CoreWriter actions are delayed — status moves <em>pending → claimable</em> as on-chain reads confirm, not on the EVM receipt.</p>
+            <ul class="queue" id="queueList"><li class="queue__empty">No pending requests.</li></ul>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ───────────────────────── Admin ───────────────────────── -->
+    <section id="admin" class="section">
+      <div class="section__head">
+        <h2>Admin panel</h2>
+        <p>Gated to the manager / owner address. Build the basket, preview the plan, submit & rebalance.</p>
+      </div>
+
+      <div class="admin card" id="adminCard">
+        <div class="admin__lock" id="adminLock">
+          <div class="lock-ico">🔒</div>
+          <h3>Manager access required</h3>
+          <p>Connect with the vault manager address to unlock basket controls.</p>
+          <button class="btn btn--primary" id="adminUnlock">Unlock as manager (demo)</button>
+        </div>
+
+        <div class="admin__body is-hidden" id="adminBody">
+          <div class="admin__row">
+            <div class="admin__col">
+              <h4>Basket composition</h4>
+              <ul class="admin-assets" id="adminAssets"></ul>
+            </div>
+            <div class="admin__col">
+              <h4>Manager actions</h4>
+              <div class="admin-actions">
+                <button class="btn btn--ghost btn--block" data-admin="discover">Discover HIP-3 assets</button>
+                <button class="btn btn--ghost btn--block" data-admin="build">Build / save basket</button>
+                <button class="btn btn--ghost btn--block" data-admin="submit">Submit basket (CoreWriter)</button>
+                <button class="btn btn--ghost btn--block" data-admin="rebalance">Rebalance to target</button>
+                <button class="btn btn--ghost btn--block" data-admin="bridge">Bridge EVM ⇄ Core</button>
+              </div>
+              <div class="admin-log" id="adminLog"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <div class="footer__inner">
+      <span class="brand"><span class="brand__mark">◆</span> SANDICK</span>
+      <span class="muted">ERC-4626 · HIP-3 · Unaudited — testnet only. Not investment advice.</span>
+    </div>
+  </footer>
+
+  <div class="toast" id="toast"></div>
+  <script src="app.js"></script>
+</body>
+</html>
