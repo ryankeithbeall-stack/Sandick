@@ -153,6 +153,34 @@ async function main() {
     assert.equal(await vault.call("totalAssets"), 500n * USDC);
   });
 
+  await test("HyperCoreReader returns accountValue (clamping negatives)", async () => {
+    const vm = await makeVM();
+    const ms = await deploy(vm, artifacts.MockMarginSummary, []);
+    const reader = await deploy(vm, artifacts.HyperCoreReader, [a(ms.address), 0]);
+    assert.equal(await reader.call("accountEquityUsd", [a(alice)]), 0n);
+    await ms.send(deployer, "setAccountValue", [1234n * USDC]);
+    assert.equal(await reader.call("accountEquityUsd", [a(alice)]), 1234n * USDC);
+    await ms.send(deployer, "setAccountValue", [-5n * USDC]); // underwater -> 0
+    assert.equal(await reader.call("accountEquityUsd", [a(alice)]), 0n);
+  });
+
+  await test("production SandickVault NAV = idle + reader equity", async () => {
+    const vm = await makeVM();
+    const usdc = await deploy(vm, artifacts.MockERC20, ["USD Coin", "USDC", 6]);
+    const ms = await deploy(vm, artifacts.MockMarginSummary, []);
+    const reader = await deploy(vm, artifacts.HyperCoreReader, [a(ms.address), 0]);
+    const vault = await deploy(vm, artifacts.SandickVault, [
+      a(usdc.address), a(manager), a(owner), a(reader.address),
+      a(alice) /*dummy usdc system addr*/, 1, 1, 3,
+    ]);
+    await usdc.send(deployer, "mint", [a(alice), 1_000_000n * USDC]);
+    await usdc.send(alice, "approve", [a(vault.address), 1n << 255n]);
+    await vault.send(alice, "deposit", [1000n * USDC, a(alice)]); // idle 1000, equity 0
+    assert.equal(await vault.call("totalAssets"), 1000n * USDC);
+    await ms.send(deployer, "setAccountValue", [500n * USDC]); // simulate Core equity
+    assert.equal(await vault.call("totalAssets"), 1500n * USDC);
+  });
+
   await test("manager has no path to extract funds", async () => {
     const names = artifacts.MockSandickVault.abi
       .filter((x) => x.type === "function")
