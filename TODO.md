@@ -68,7 +68,7 @@ The architecture is simulation-tested only. Prove the live round-trip:
 - [ ] Confirm the vault's EVM USDC token is 6-decimal (else adjust `coreScale`).
 
 ## 7. Engineering hygiene 🟢
-- [ ] CI: run `pytest` + `npm run test:contracts` on every push.
+- [x] CI: run `pytest` + `npm run test:contracts` on every push.
 - [ ] Foundry test suite (mirrors the ethereumjs tests) for auditor familiarity.
 - [ ] Fork/integration tests against a HyperEVM testnet fork if tooling allows.
 - [ ] Linting/formatting (ruff/black for Python, forge fmt/solhint for Solidity).
