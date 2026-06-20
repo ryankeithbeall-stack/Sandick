@@ -4,6 +4,7 @@ pragma solidity 0.8.26;
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {ERC4626} from "@openzeppelin/contracts/token/ERC20/extensions/ERC4626.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
@@ -24,11 +25,23 @@ import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol
 /// behind the `_core*` hooks so the accounting/trust logic is testable against a
 /// mock; the concrete implementation lives in {SandickVault}.
 abstract contract SandickVaultBase is ERC4626, Ownable, ReentrancyGuard {
+    using SafeERC20 for IERC20;
+
     /// @notice Strategy key permitted to trade (but never to move funds out).
     address public manager;
 
     /// @notice Assets (HyperCore asset ids) the manager is allowed to trade.
     mapping(uint32 => bool) public allowedAsset;
+
+    // --- Async redemption queue (ERC-7540-style) ---
+    /// @notice Shares escrowed in the vault awaiting fulfillment, per owner.
+    mapping(address => uint256) public pendingRedeemShares;
+    /// @notice Total escrowed shares awaiting fulfillment.
+    uint256 public totalPendingRedeemShares;
+    /// @notice USDC settled and owed to an owner, claimable any time.
+    mapping(address => uint256) public claimableAssets;
+    /// @notice USDC reserved for claims; excluded from NAV and idle liquidity.
+    uint256 public reservedAssets;
 
     /// @dev A single order leg. Prices/sizes are in HyperCore integer units; the
     /// off-chain planner produces these from the equal-weight plan.
@@ -46,10 +59,18 @@ abstract contract SandickVaultBase is ERC4626, Ownable, ReentrancyGuard {
     event BasketSubmitted(uint256 count);
     event BridgedToCore(uint256 amount);
     event BridgedFromCore(uint256 amount);
+    event RedeemRequested(address indexed owner, uint256 shares);
+    event RedeemRequestCancelled(address indexed owner, uint256 shares);
+    event RedeemFulfilled(address indexed owner, uint256 shares, uint256 assets);
+    event RedeemClaimed(address indexed owner, uint256 assets);
 
     error NotManager();
     error ZeroAddress();
     error AssetNotAllowed(uint32 assetId);
+    error ZeroAmount();
+    error ExceedsPending();
+    error InsufficientIdleLiquidity();
+    error NothingClaimable();
 
     modifier onlyManager() {
         if (msg.sender != manager) revert NotManager();
@@ -73,7 +94,8 @@ abstract contract SandickVaultBase is ERC4626, Ownable, ReentrancyGuard {
     // --------------------------------------------------------------------- //
 
     /// @notice Vault NAV = idle USDC on HyperEVM + equity on HyperCore (margin +
-    /// unrealized PnL), denominated in the underlying asset's units.
+    /// unrealized PnL), denominated in the underlying asset's units. Excludes
+    /// assets already reserved for queued redemptions (those belong to claimers).
     function totalAssets() public view override returns (uint256) {
         return _idleAssets() + _coreEquityUsd();
     }
@@ -83,8 +105,9 @@ abstract contract SandickVaultBase is ERC4626, Ownable, ReentrancyGuard {
         return 6;
     }
 
+    /// @dev Unreserved USDC held on HyperEVM (claim-reserved funds excluded).
     function _idleAssets() internal view returns (uint256) {
-        return IERC20(asset()).balanceOf(address(this));
+        return IERC20(asset()).balanceOf(address(this)) - reservedAssets;
     }
 
     // --------------------------------------------------------------------- //
@@ -106,6 +129,61 @@ abstract contract SandickVaultBase is ERC4626, Ownable, ReentrancyGuard {
         uint256 idleInShares = convertToShares(_idleAssets());
         uint256 bal = balanceOf(owner);
         return bal < idleInShares ? bal : idleInShares;
+    }
+
+    // --------------------------------------------------------------------- //
+    //                     Async redemption queue (7540-ish)                  //
+    // --------------------------------------------------------------------- //
+    // For redemptions larger than idle liquidity. Shares are escrowed, then
+    // priced and settled at FULFILLMENT time (so the redeemer bears market moves
+    // until funds are actually available, not the remaining holders). The
+    // manager unwinds positions and bridges funds over later blocks; once idle
+    // liquidity exists, fulfillment is PERMISSIONLESS so the manager cannot
+    // block a depositor's exit.
+
+    /// @notice Escrow `shares` for asynchronous redemption.
+    function requestRedeem(uint256 shares) external nonReentrant {
+        if (shares == 0) revert ZeroAmount();
+        _transfer(msg.sender, address(this), shares); // reverts if insufficient
+        pendingRedeemShares[msg.sender] += shares;
+        totalPendingRedeemShares += shares;
+        emit RedeemRequested(msg.sender, shares);
+    }
+
+    /// @notice Cancel a pending request and get the escrowed shares back.
+    function cancelRedeemRequest(uint256 shares) external nonReentrant {
+        if (shares == 0) revert ZeroAmount();
+        if (pendingRedeemShares[msg.sender] < shares) revert ExceedsPending();
+        pendingRedeemShares[msg.sender] -= shares;
+        totalPendingRedeemShares -= shares;
+        _transfer(address(this), msg.sender, shares);
+        emit RedeemRequestCancelled(msg.sender, shares);
+    }
+
+    /// @notice Settle `shares` of `owner`'s request at the CURRENT share price,
+    /// reserving the USDC for claim. Permissionless; reverts without idle funds.
+    function fulfillRedeem(address owner, uint256 shares) public nonReentrant {
+        if (shares == 0) revert ZeroAmount();
+        if (pendingRedeemShares[owner] < shares) revert ExceedsPending();
+        uint256 assets = convertToAssets(shares); // price before burning
+        if (_idleAssets() < assets) revert InsufficientIdleLiquidity();
+
+        pendingRedeemShares[owner] -= shares;
+        totalPendingRedeemShares -= shares;
+        _burn(address(this), shares);
+        reservedAssets += assets;
+        claimableAssets[owner] += assets;
+        emit RedeemFulfilled(owner, shares, assets);
+    }
+
+    /// @notice Withdraw assets settled by a prior fulfillment.
+    function claim() external nonReentrant {
+        uint256 amount = claimableAssets[msg.sender];
+        if (amount == 0) revert NothingClaimable();
+        claimableAssets[msg.sender] = 0;
+        reservedAssets -= amount;
+        IERC20(asset()).safeTransfer(msg.sender, amount);
+        emit RedeemClaimed(msg.sender, amount);
     }
 
     // --------------------------------------------------------------------- //

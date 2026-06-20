@@ -102,6 +102,57 @@ async function main() {
     assert.equal(await vault.call("submittedCount"), 1n);
   });
 
+  await test("async redeem: request -> bridge -> fulfill (permissionless) -> claim", async () => {
+    const { usdc, vault } = await fixture();
+    await vault.send(alice, "deposit", [1000n * USDC, a(alice)]);
+    await vault.send(manager, "bridgeToCore", [1000n * USDC]); // no idle liquidity
+    const shares = await vault.call("balanceOf", [a(alice)]);
+
+    // escrow the shares
+    await vault.send(alice, "requestRedeem", [shares]);
+    assert.equal(await vault.call("balanceOf", [a(alice)]), 0n);
+    assert.equal(await vault.call("pendingRedeemShares", [a(alice)]), shares);
+
+    // can't fulfill without idle liquidity
+    await assert.rejects(() => vault.send(bob, "fulfillRedeem", [a(alice), shares]));
+
+    // manager brings funds back; now anyone can fulfill
+    await vault.send(manager, "bridgeFromCore", [1000n * USDC]);
+    await vault.send(bob, "fulfillRedeem", [a(alice), shares]); // permissionless
+    assert.equal(await vault.call("claimableAssets", [a(alice)]), 1000n * USDC);
+    assert.equal(await vault.call("totalAssets"), 0n); // reserved excluded from NAV
+
+    // claim pays out
+    await vault.send(alice, "claim");
+    assert.equal(await usdc.call("balanceOf", [a(alice)]), 1_000_000n * USDC);
+    assert.equal(await vault.call("reservedAssets"), 0n);
+  });
+
+  await test("async redeem: cancel returns escrowed shares", async () => {
+    const { vault } = await fixture();
+    await vault.send(alice, "deposit", [1000n * USDC, a(alice)]);
+    const shares = await vault.call("balanceOf", [a(alice)]);
+    await vault.send(alice, "requestRedeem", [shares]);
+    await vault.send(alice, "cancelRedeemRequest", [shares]);
+    assert.equal(await vault.call("balanceOf", [a(alice)]), shares);
+    assert.equal(await vault.call("pendingRedeemShares", [a(alice)]), 0n);
+  });
+
+  await test("reserved assets are protected from sync withdrawals", async () => {
+    const { usdc, vault } = await fixture();
+    // alice deposits and queues a full redemption, fulfilled from idle
+    await vault.send(alice, "deposit", [1000n * USDC, a(alice)]);
+    const aShares = await vault.call("balanceOf", [a(alice)]);
+    await vault.send(alice, "requestRedeem", [aShares]);
+    await vault.send(bob, "fulfillRedeem", [a(alice), aShares]); // reserves alice's 1000
+    // bob deposits fresh; his sync withdrawal must not dip into alice's reserve
+    await vault.send(bob, "deposit", [500n * USDC, a(bob)]);
+    assert.equal(await vault.call("maxWithdraw", [a(bob)]), 500n * USDC);
+    // contract holds 1500 USDC but 1000 is reserved
+    assert.equal(await usdc.call("balanceOf", [a(vault.address)]), 1500n * USDC);
+    assert.equal(await vault.call("totalAssets"), 500n * USDC);
+  });
+
   await test("manager has no path to extract funds", async () => {
     const names = artifacts.MockSandickVault.abi
       .filter((x) => x.type === "function")
