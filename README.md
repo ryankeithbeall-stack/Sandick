@@ -43,11 +43,20 @@ for a later iteration (see [Roadmap](#roadmap)).
 
 ## Install
 
-```bash
-pip install -r requirements.txt   # SDK only needed for --live
-# or, editable install with the `sandick` CLI entry point:
-pip install -e .
-```
+The base package has **no runtime dependencies**; each capability pulls its deps
+from an optional-dependency group (an "extra"). Install only what you need:
+
+| Command                          | Enables                                                        |
+|----------------------------------|---------------------------------------------------------------|
+| `pip install -e .`               | Dry-run planner from a local price file (`sandick` CLI).       |
+| `pip install -e ".[live]"`       | `--live` price fetching + off-chain order placement.           |
+| `pip install -e ".[keeper,live]"`| The keeper bot (EVM reads/writes + live market data).          |
+| `pip install -e ".[dev]"`        | The test + lint toolchain (`pytest`, `pytest-cov`, `ruff`).    |
+| `pip install -r requirements.txt`| Everything above in one shot (mirrors all extras).             |
+
+> Live/keeper deps are imported lazily, so a missing extra surfaces only when you
+> actually run that path (e.g. `--execute`), not at import time. If a command
+> errors on a missing module, install the matching extra from the table above.
 
 ## Usage
 
@@ -299,13 +308,25 @@ RPC_URL=… VAULT_ADDRESS=0x… USDC_ADDRESS=0x… MANAGER_KEY=0x… \
 
 ## Roadmap
 
+`[x]` below means **the code is written and unit-tested**, not that it has been
+verified end-to-end against a live chain. Everything marked ⚠️ depends on the one
+unproven assumption — *a contract account can place HIP-3 orders via CoreWriter on
+the real dex* — which is only validated by **Testnet sign-off** (still open). Do
+not treat the ⚠️ items as production-proven until that box is checked; see
+[GO-LIVE.md](GO-LIVE.md).
+
+**Implemented (unit-tested, offline):**
+
 - [x] **Custom groupings/weights** beyond a single equal-weighted set.
-- [x] **Live order placement** (off-chain) behind `--execute`, slippage + notional guards.
-- [x] **On-chain vault** (ERC-4626) with NAV reader and async redemption queue.
-- [x] **Rebalance** mode: trade only the deltas back to target weight (reduce-only aware).
-- [x] **Deploy + calibration** scripts to derive on-chain immutables from live data.
+- [x] **Live order placement** (off-chain) behind `--execute`, slippage + notional guards. ⚠️
+- [x] **On-chain vault** (ERC-4626) with NAV reader and async redemption queue. ⚠️
+- [x] **Rebalance** mode: trade only the deltas back to target weight (reduce-only aware). ⚠️
+- [x] **Deploy + calibration** scripts to derive on-chain immutables from live data. ⚠️
+
+**Not yet verified / open:**
+
 - [ ] **Testnet sign-off:** deploy to chainid 998, seed the Core account, and confirm
-      orders/NAV/bridging end-to-end (the remaining open assumptions).
+      orders/NAV/bridging end-to-end (this is what clears the ⚠️ items above).
 - [ ] **Security audit** before any mainnet deposits.
 
 ## Tests
