@@ -1,6 +1,6 @@
-# Basket Vault platform — on-chain (HyperEVM) contracts
+# Aperture — on-chain (HyperEVM) contracts
 
-A **vault deployment platform** on Hyperliquid's **HyperEVM**. Anyone can deploy a
+**Aperture** is a **vault deployment platform** on Hyperliquid's **HyperEVM**. Anyone can deploy a
 **trustless, tokenized vault** (`BasketVault`) through the **`VaultFactory`**; each
 vault custodies USDC and trades an equal-weighted HIP-3 basket on **HyperCore**
 (via the Trade.xyz builder dex) through the **CoreWriter** system contract.

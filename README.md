@@ -1,6 +1,6 @@
-# Basket vault platform — HIP-3 equal-weighted basket vaults
+# Aperture — HIP-3 basket vault platform
 
-A **vault deployment platform** on Hyperliquid
+**Aperture** is a **vault deployment platform** on Hyperliquid
 [HIP-3](https://hyperliquid.gitbook.io/hyperliquid-docs) (builder-deployed) perp
 markets. Anyone can deploy an **admin-managed, equal-weighted basket vault**
 through the on-chain [`VaultFactory`](contracts/src/VaultFactory.sol); the platform

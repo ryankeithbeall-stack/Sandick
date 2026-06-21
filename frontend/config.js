@@ -7,7 +7,7 @@
  * NOTE: testnet sign-off is not complete — leave chain disabled until the
  * vault is deployed and its immutables are verified on chainid 998.
  */
-window.SANDICK_CONFIG = {
+window.APERTURE_CONFIG = {
   chain: {
     enabled: false,
     chainId: 998,                  // HyperEVM testnet

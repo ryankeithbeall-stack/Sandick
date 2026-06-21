@@ -1,12 +1,12 @@
-# Vault Platform — front end
+# Aperture — front end
 
-A sleek, zero-build front end for the vault deployment platform: a marketplace of
-HIP-3 basket vaults, a "launch a vault" flow, and a full depositor/manager
-deep-dive for the flagship **SANDICK** vault. Pure HTML/CSS/JS — no bundler, no
-install. Open it or serve the folder.
+A sleek, zero-build front end for **Aperture**, the vault deployment platform: a
+marketplace of HIP-3 basket vaults, a "launch a vault" flow, and a full
+depositor/manager deep-dive for the flagship **SANDICK** vault. Pure HTML/CSS/JS
+— no bundler, no install. Open it or serve the folder.
 
-> **Brand:** "Vault Platform" is a placeholder wordmark — the final product name
-> is TBD. SANDICK is the flagship vault, not the platform name.
+> **Brand:** Aperture is the platform; SANDICK is the flagship vault, not the
+> platform name.
 
 ```bash
 # from the repo root
@@ -69,7 +69,7 @@ same buttons hit the contract instead of the demo state:
 
 ```js
 // config.js
-window.SANDICK_CONFIG = { chain: {
+window.APERTURE_CONFIG = { chain: {
   enabled: true,
   chainId: 998,
   rpcUrl: 'https://rpc.hyperliquid-testnet.xyz/evm',

@@ -13,8 +13,8 @@
  * never treat a receipt as success for a Core action.
  *
  * Usage (ES module):
- *   import { SandickChain } from './chain.js';
- *   const chain = await SandickChain.connect(window.SANDICK_CONFIG.chain);
+ *   import { ApertureChain } from './chain.js';
+ *   const chain = await ApertureChain.connect(window.APERTURE_CONFIG.chain);
  *   const nav = await chain.totalAssets();
  */
 
@@ -82,7 +82,7 @@ export const ERC20_ABI = [
 
 const VIEM_CDN = 'https://esm.sh/viem@2';
 
-export class SandickChain {
+export class ApertureChain {
   constructor({ publicClient, walletClient, account, cfg, viem }) {
     this.publicClient = publicClient;
     this.walletClient = walletClient;
@@ -109,7 +109,7 @@ export class SandickChain {
       walletClient = viem.createWalletClient({ chain, transport: viem.custom(window.ethereum) });
       [account] = await walletClient.requestAddresses();
     }
-    return new SandickChain({ publicClient, walletClient, account, cfg, viem });
+    return new ApertureChain({ publicClient, walletClient, account, cfg, viem });
   }
 
   _read(functionName, args = []) {

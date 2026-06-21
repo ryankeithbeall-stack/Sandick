@@ -40,7 +40,7 @@ const EQUAL_WEIGHT = 1 / N;
 // performer (its detail view is the rest of this page). The non-flagship vaults
 // are illustrative demo entries.
 const PLATFORM = {
-  name: 'Vault Platform',          // placeholder brand — final product name TBD
+  name: 'Aperture',                // the platform brand (SANDICK is the flagship vault)
   protocolFeeBps: 100,             // VaultFactory default platform fee (1%/yr of NAV)
 };
 
@@ -66,10 +66,10 @@ const VAULTS = [
 ];
 
 // ── chain mode (config-gated) ───────────────────────────────
-// When window.SANDICK_CONFIG.chain.enabled is true we wire the depositor and
+// When window.APERTURE_CONFIG.chain.enabled is true we wire the depositor and
 // admin surfaces to a deployed BasketVault via chain.js; otherwise the app
 // runs the self-contained demo state machine below. See frontend/config.js.
-const CHAIN_CFG = (typeof window !== 'undefined' && window.SANDICK_CONFIG && window.SANDICK_CONFIG.chain) || null;
+const CHAIN_CFG = (typeof window !== 'undefined' && window.APERTURE_CONFIG && window.APERTURE_CONFIG.chain) || null;
 const LIVE = !!(CHAIN_CFG && CHAIN_CFG.enabled);
 
 // ── allocation math (port of allocator.build_plan, equal-weight) ──
@@ -551,7 +551,7 @@ function wireAdmin() {
 // ═══════════════════════════════════════════════════════════
 //  Live chain mode — wires the demo handlers to a deployed vault (chain.js)
 // ═══════════════════════════════════════════════════════════
-let chain = null;                       // SandickChain instance (lazy)
+let chain = null;                       // ApertureChain instance (lazy)
 const dec = { asset: 6, share: 18 };    // token decimals, read on connect
 
 const toNum = (bi, d) => Number(bi) / 10 ** d;       // raw units -> human (display)
@@ -562,7 +562,7 @@ const Live = {
   async ensure() {
     if (chain) return chain;
     const mod = await import('./chain.js');
-    chain = await mod.SandickChain.connect(CHAIN_CFG);
+    chain = await mod.ApertureChain.connect(CHAIN_CFG);
     [dec.asset, dec.share] = await Promise.all([chain.usdcDecimals(), chain.shareDecimals()]);
     return chain;
   },
@@ -739,7 +739,7 @@ function init() {
   wireLaunch();
   runCalc();
   if (LIVE) {
-    document.title = 'Vault Platform — live (' + (CHAIN_CFG.explorer ? 'testnet' : 'chain ' + CHAIN_CFG.chainId) + ')';
+    document.title = 'Aperture — live (' + (CHAIN_CFG.explorer ? 'testnet' : 'chain ' + CHAIN_CFG.chainId) + ')';
     Live.init();
   } else {
     refreshVault();
