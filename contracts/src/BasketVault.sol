@@ -41,40 +41,46 @@ contract BasketVault is BasketVaultBase {
     /// @notice Time-in-force for basket orders (1 ALO, 2 GTC, 3 IOC).
     uint8 public immutable tif;
 
-    constructor(
-        IERC20 asset_,
-        string memory name_,
-        string memory symbol_,
-        address manager_,
-        address owner_,
-        IHyperCoreReader reader_,
-        address usdcSystemAddress_,
-        uint64 usdcCoreTokenIndex_,
-        uint256 coreScale_,
-        uint8 tif_,
-        address protocolAdmin_,
-        address protocolTreasury_,
-        uint16 protocolFeeBps_
-    )
+    /// @notice All constructor inputs, bundled into one struct so the 13-field
+    /// initializer decodes into memory in one shot — this keeps the legacy
+    /// codegen under the stack limit (no `viaIR` needed) and lets {VaultFactory}
+    /// build the params by name.
+    struct VaultParams {
+        IERC20 asset;
+        string name;
+        string symbol;
+        address manager;
+        address owner;
+        IHyperCoreReader reader;
+        address usdcSystemAddress;
+        uint64 usdcCoreTokenIndex;
+        uint256 coreScale;
+        uint8 tif;
+        address protocolAdmin;
+        address protocolTreasury;
+        uint16 protocolFeeBps;
+    }
+
+    constructor(VaultParams memory p)
         BasketVaultBase(
-            asset_,
-            name_,
-            symbol_,
-            manager_,
-            owner_,
-            protocolAdmin_,
-            protocolTreasury_,
-            protocolFeeBps_
+            p.asset,
+            p.name,
+            p.symbol,
+            p.manager,
+            p.owner,
+            p.protocolAdmin,
+            p.protocolTreasury,
+            p.protocolFeeBps
         )
     {
-        require(address(reader_) != address(0) && usdcSystemAddress_ != address(0), "zero addr");
-        require(coreScale_ > 0, "scale");
-        require(tif_ >= 1 && tif_ <= 3, "tif");
-        reader = reader_;
-        usdcSystemAddress = usdcSystemAddress_;
-        usdcCoreTokenIndex = usdcCoreTokenIndex_;
-        coreScale = coreScale_;
-        tif = tif_;
+        require(address(p.reader) != address(0) && p.usdcSystemAddress != address(0), "zero addr");
+        require(p.coreScale > 0, "scale");
+        require(p.tif >= 1 && p.tif <= 3, "tif");
+        reader = p.reader;
+        usdcSystemAddress = p.usdcSystemAddress;
+        usdcCoreTokenIndex = p.usdcCoreTokenIndex;
+        coreScale = p.coreScale;
+        tif = p.tif;
     }
 
     function _coreAmount(uint256 evmAmount) internal view returns (uint64) {

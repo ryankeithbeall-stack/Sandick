@@ -87,19 +87,21 @@ contract VaultFactory is Ownable {
         CoreParams calldata core
     ) external returns (address vault) {
         BasketVault v = new BasketVault(
-            asset,
-            name,
-            symbol,
-            manager,
-            msg.sender, // owner / operator = the creator
-            core.reader,
-            core.usdcSystemAddress,
-            core.usdcCoreTokenIndex,
-            core.coreScale,
-            core.tif,
-            address(this), // protocolAdmin = the platform, not the creator
-            protocolTreasury,
-            protocolFeeBps
+            BasketVault.VaultParams({
+                asset: asset,
+                name: name,
+                symbol: symbol,
+                manager: manager,
+                owner: msg.sender, // owner / operator = the creator
+                reader: core.reader,
+                usdcSystemAddress: core.usdcSystemAddress,
+                usdcCoreTokenIndex: core.usdcCoreTokenIndex,
+                coreScale: core.coreScale,
+                tif: core.tif,
+                protocolAdmin: address(this), // protocolAdmin = the platform, not the creator
+                protocolTreasury: protocolTreasury,
+                protocolFeeBps: protocolFeeBps
+            })
         );
         vault = address(v);
 

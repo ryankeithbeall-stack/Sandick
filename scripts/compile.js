@@ -34,7 +34,6 @@ function compile() {
     sources,
     settings: {
       optimizer: { enabled: true, runs: 200 },
-      viaIR: true,
       evmVersion: "shanghai",
       outputSelection: {
         "*": {

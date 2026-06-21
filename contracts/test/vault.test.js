@@ -193,11 +193,12 @@ async function main() {
     const usdc = await deploy(vm, artifacts.MockERC20, ["USD Coin", "USDC", 6]);
     const ms = await deploy(vm, artifacts.MockMarginSummary, []);
     const reader = await deploy(vm, artifacts.HyperCoreReader, [a(ms.address), 0]);
-    const vault = await deploy(vm, artifacts.BasketVault, [
+    // BasketVault now takes a single VaultParams struct (one tuple arg).
+    const vault = await deploy(vm, artifacts.BasketVault, [[
       a(usdc.address), "SANDICK Vault", "sSANDICK", a(manager), a(owner), a(reader.address),
       a(alice) /*dummy usdc system addr*/, 1, 1, 3,
       a(owner) /*protocolAdmin*/, a(owner) /*protocolTreasury*/, 0 /*protocolFeeBps*/,
-    ]);
+    ]]);
     await usdc.send(deployer, "mint", [a(alice), 1_000_000n * USDC]);
     await usdc.send(alice, "approve", [a(vault.address), 1n << 255n]);
     await vault.send(alice, "deposit", [1000n * USDC, a(alice)]); // idle 1000, equity 0
