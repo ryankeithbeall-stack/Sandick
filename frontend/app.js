@@ -1,6 +1,7 @@
 /* ─────────────────────────────────────────────────────────────
    SANDICK vault — front end logic
    - Basket + price data mirror config/sandick.basket.json + prices.example.json
+     (kept in sync by tests/test_frontend_parity.py — update both together)
    - allocate() is a faithful JS port of sandick.allocator.build_plan
    - Vault / queue / admin are a local demo state machine (no chain calls)
    ───────────────────────────────────────────────────────────── */

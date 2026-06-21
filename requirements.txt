@@ -1,6 +1,17 @@
-# Runtime: only needed for `--live` price fetching / future order placement.
+# Convenience requirements file — mirrors the optional-dependency groups in
+# pyproject.toml so `pip install -r requirements.txt` yields a fully working
+# dev + live + keeper environment. pyproject.toml remains the source of truth;
+# prefer `pip install -e ".[<extras>]"` if you only need a subset (see the
+# install matrix in README.md).
+
+# [live] — live price fetching and off-chain order placement.
 hyperliquid-python-sdk>=0.24.0
 
-# Dev/test
+# [keeper] — EVM reads/writes for the keeper bot against the deployed vault.
+web3>=6
+eth-account>=0.11
+
+# [dev] — test + lint toolchain.
 pytest>=8.0
 pytest-cov>=5.0
+ruff>=0.5
