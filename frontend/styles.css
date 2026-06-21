@@ -307,6 +307,10 @@ table.plan tbody tr:hover { background: rgba(255,255,255,.02); }
   .price-inputs { grid-template-columns: 1fr; }
 }
 
+/* ── per-vault detail chrome ── */
+.link-back { color: var(--accent-2); text-decoration: none; font-weight: 600; margin-right: 6px; }
+.link-back:hover { text-decoration: underline; }
+
 /* ── badges ── */
 .badge {
   display: inline-flex; align-items: center; gap: 6px;

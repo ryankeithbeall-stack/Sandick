@@ -131,14 +131,40 @@ const state = {
   isManager: false,
   prices: { ...EXAMPLE_PRICES },
   side: 'long',
-  // vault demo state
+  // which vault the detail view (stats/deposit/redeem/admin) is bound to
+  activeVaultId: 'sandick',
+  // the active vault's demo numbers (swapped in/out by selectVault in demo mode)
   navPerShare: 1.0427,
   totalAssets: 248_500,
   shareSupply: 238_330,
-  walletUsdc: 10_000,
+  walletUsdc: 10_000,       // the user's wallet — shared across vaults
   yourShares: 0,
   queue: [],
 };
+
+// Per-vault demo state (chain off). The flagship keeps the hand-tuned numbers so
+// the existing demo is unchanged; others are seeded from their marketplace card.
+const demoState = {
+  sandick: { navPerShare: 1.0427, totalAssets: 248_500, shareSupply: 238_330, yourShares: 0, queue: [] },
+};
+function demoStateFor(v) {
+  if (!demoState[v.id]) {
+    const nav = 1 + (v.ret30 || 0);
+    demoState[v.id] = {
+      navPerShare: nav,
+      totalAssets: v.tvl,
+      shareSupply: nav > 0 ? v.tvl / nav : v.tvl,
+      yourShares: 0,
+      queue: [],
+    };
+  }
+  return demoState[v.id];
+}
+
+const activeVault = () =>
+  activeVaults.find((v) => v.id === state.activeVaultId) || activeVaults[0];
+// Share-token symbol for the active vault (falls back to a generic label).
+const shareSymbol = () => (activeVault() && activeVault().symbol) || 'shares';
 
 // ═══════════════════════════════════════════════════════════
 //  Basket grid
@@ -239,15 +265,54 @@ function renderVaults() {
     }));
 }
 
-function openVault(id) {
+// Open a marketplace card → bind the detail view (stats/deposit/redeem/admin) to
+// that vault and scroll to it.
+function openVault(id) { selectVault(id, { scroll: true }); }
+
+function selectVault(id, { scroll = false } = {}) {
   const v = activeVaults.find((x) => x.id === id);
   if (!v) return;
-  // The detail view below is bound to the configured flagship vault, so flagship
-  // cards scroll to it; others point back to it (per-vault detail is a follow-up).
-  if (v.flagship) {
-    $('#flagship').scrollIntoView({ behavior: 'smooth' });
+
+  if (id !== state.activeVaultId) {
+    if (!LIVE) {
+      // Persist the current vault's demo numbers, then load the target's.
+      const cur = demoState[state.activeVaultId];
+      if (cur) Object.assign(cur, {
+        navPerShare: state.navPerShare, totalAssets: state.totalAssets,
+        shareSupply: state.shareSupply, yourShares: state.yourShares, queue: state.queue,
+      });
+      const next = demoStateFor(v);
+      Object.assign(state, {
+        navPerShare: next.navPerShare, totalAssets: next.totalAssets,
+        shareSupply: next.shareSupply, yourShares: next.yourShares, queue: next.queue,
+      });
+    }
+    state.activeVaultId = id;
+    // a different vault means different manager/owner — re-gate the admin panel
+    state.isManager = false;
+  }
+
+  updateActiveVaultUI(v);
+  if (LIVE) {
+    Live.selectVault(v);          // re-point chain reads/writes + re-read on-chain
   } else {
-    toast(`${v.name} — full vault detail is coming soon (the flagship is live below)`);
+    refreshVault();
+    refreshAdmin();
+  }
+  if (scroll) $('#vault').scrollIntoView({ behavior: 'smooth' });
+}
+
+// Reflect the active vault in the detail-view chrome (heading, share symbol).
+function updateActiveVaultUI(v) {
+  const set = (sel, text) => { const el = $(sel); if (el) el.textContent = text; };
+  set('#activeVaultName', v.name);
+  set('#shareSupplySym', v.symbol || 'shares');
+  set('#redeemSymLabel', v.symbol || 'shares');
+  const note = $('#vaultDemoNote');
+  if (note) {
+    note.textContent = LIVE
+      ? (v.flagship ? 'Flagship vault — live on chain.' : 'Live on chain.')
+      : 'Demo state — wire to the live contract on testnet.';
   }
 }
 
@@ -395,7 +460,7 @@ function updateDepositPreview() {
   const shares = amt / state.navPerShare;
   $('#depositPreview').innerHTML = amt > 0 ? `
     <div class="row"><span>You deposit</span><span>${fmtUsd(amt)}</span></div>
-    <div class="row"><span>You receive</span><span>${fmtNum(shares)} SAND-LP</span></div>
+    <div class="row"><span>You receive</span><span>${fmtNum(shares)} ${shareSymbol()}</span></div>
     <div class="row"><span>Share price</span><span>${fmtUsd(state.navPerShare, 4)}</span></div>`
     : `<span class="muted">Enter an amount to preview shares.</span>`;
 }
@@ -404,7 +469,7 @@ function updateRedeemPreview() {
   const shares = parseFloat($('#redeemAmt').value) || 0;
   const usdc = shares * state.navPerShare;
   $('#redeemPreview').innerHTML = shares > 0 ? `
-    <div class="row"><span>You redeem</span><span>${fmtNum(shares)} SAND-LP</span></div>
+    <div class="row"><span>You redeem</span><span>${fmtNum(shares)} ${shareSymbol()}</span></div>
     <div class="row"><span>You receive</span><span>≈ ${fmtUsd(usdc)}</span></div>
     <div class="row"><span>Sync needs idle USDC; else use the queue.</span><span></span></div>`
     : `<span class="muted">Enter shares to preview proceeds.</span>`;
@@ -419,7 +484,7 @@ function renderQueue() {
   list.innerHTML = state.queue.map((q) => `
     <li class="qitem">
       <div class="qitem__main">
-        <span class="qitem__amt">${fmtNum(q.shares)} SAND-LP</span>
+        <span class="qitem__amt">${fmtNum(q.shares)} ${shareSymbol()}</span>
         <span class="qitem__meta">≈ ${fmtUsd(q.shares * state.navPerShare)} · #${q.id}</span>
       </div>
       ${q.status === 'claimable'
@@ -520,11 +585,18 @@ function refreshAdmin() {
   $('#adminLock').classList.toggle('is-hidden', state.isManager);
   $('#adminBody').classList.toggle('is-hidden', !state.isManager);
   if (state.isManager) {
-    $('#adminAssets').innerHTML = BASKET.assets.map((a) => `
-      <li>
-        <span>${a.company} <span class="coin">${a.coin}</span></span>
-        <span class="w">${fmtPct(EQUAL_WEIGHT)}</span>
-      </li>`).join('');
+    const v = activeVault();
+    const onFlagship = !v || v.flagship;
+    // The basket composition is only known for the flagship (SANDICK) demo data;
+    // other vaults trade their own allow-listed assets (read on-chain in live mode).
+    $('#adminAssets').innerHTML = onFlagship
+      ? BASKET.assets.map((a) => `
+        <li>
+          <span>${a.company} <span class="coin">${a.coin}</span></span>
+          <span class="w">${fmtPct(EQUAL_WEIGHT)}</span>
+        </li>`).join('')
+      : `<li class="muted">Basket composition for <strong>${v.name}</strong> is set by its
+         manager (allow-listed HIP-3 assets). The flagship SANDICK basket is shown as the example.</li>`;
   }
 }
 
@@ -621,10 +693,32 @@ const Live = {
           status: 'live',
         };
       });
+      // Bind the detail view to the flagship (configured vaultAddress) if present,
+      // else the first vault, so the heading/symbol reflect a real on-chain vault.
+      const flag = activeVaults.find((v) => v.flagship) || activeVaults[0];
+      if (flag) { state.activeVaultId = flag.id; updateActiveVaultUI(flag); }
       renderPlatformStats();
       renderVaults();
     } catch (e) {
       toast('Vault list read failed: ' + (e.shortMessage || e.message));
+    }
+  },
+
+  /** Re-point the on-chain detail view at the selected vault and re-read it.
+   *  Also re-checks admin gating against the new vault's manager/owner. */
+  async selectVault(v) {
+    try {
+      await Live.ensure();
+      if (!chain.setVault) return refreshVault();
+      chain.setVault(v.id);              // v.id is the vault address in live mode
+      await Live.refreshVault();
+      if (state.connected) {
+        const [mgr, own] = await Promise.all([chain.isManager(), chain.isOwner()]);
+        state.isManager = mgr || own;    // gate the admin panel to this vault's roles
+      }
+      refreshAdmin();
+    } catch (e) {
+      toast('Switch failed: ' + (e.shortMessage || e.message));
     }
   },
 
@@ -810,6 +904,7 @@ const Live = {
 function init() {
   renderPlatformStats();
   renderVaults();
+  updateActiveVaultUI(activeVault());   // reflect the default (flagship) vault
   renderBasket();
   renderPriceInputs();
   wireCalc();

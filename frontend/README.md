@@ -109,10 +109,14 @@ asset ids + 1e8-scaled px/sz) is produced by the Python planner
 (`sandick.onchain` / `exec_cli`); `chain.submitBasket(orders)` is the ready hook
 to send that output.
 
-Per-vault detail: the deposit/calculator/admin deep-dive is bound to the single
-`vaultAddress` (the flagship), so non-flagship marketplace cards point back to it.
-A full per-vault detail view (re-pointing `chain` at any selected vault) is the
-next step — `chain._readAt(address, …)` already reads any vault by address.
+Per-vault detail: clicking **any** marketplace card binds the detail view (NAV
+stats, deposit/redeem, the queue and the admin panel) to that vault and scrolls
+to it. In live mode `chain.setVault(address)` re-points every read/write at the
+selected vault and re-checks admin gating against its `manager`/`owner`; in demo
+mode each vault carries its own state seeded from its card. The share-token
+symbol and heading update to the selected vault. (The **basket grid + calculator**
+remain the SANDICK example — a vault's exact composition isn't in the registry;
+the admin panel notes this for non-flagship vaults.)
 
 It's **off by default** — testnet sign-off (chainid 998) isn't complete, so the
 contract immutables it reads against must be verified first (see root `TODO.md`).

@@ -145,6 +145,13 @@ export class ApertureChain {
     return new ApertureChain({ publicClient, walletClient, account, cfg, viem });
   }
 
+  /** Re-point the depositor/admin reads + writes at another vault on the platform
+   *  (e.g. when the user opens a different marketplace card). The single-vault
+   *  helpers below all key off cfg.vaultAddress, so this switches the detail view. */
+  setVault(address) {
+    this.cfg.vaultAddress = address;
+  }
+
   _read(functionName, args = []) {
     return this.publicClient.readContract({
       address: this.cfg.vaultAddress, abi: VAULT_ABI, functionName, args,

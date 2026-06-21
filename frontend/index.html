@@ -79,7 +79,7 @@
       <div class="flagship-banner">
         <span class="badge badge--flagship">★ Flagship vault</span>
         <span class="flagship-banner__name">SANDICK</span>
-        <span class="muted">— the #1 performer on the platform. The deep-dive below (basket, calculator, deposits, manager tools) is for this vault.</span>
+        <span class="muted">— the #1 performer on the platform. The basket &amp; calculator below illustrate SANDICK; the depositor &amp; manager panels follow whichever vault you open from the marketplace.</span>
       </div>
       <div class="section__head">
         <h2>The basket</h2>
@@ -148,8 +148,8 @@
     <!-- ───────────────────────── Vault (depositor) ───────────────────────── -->
     <section id="vault" class="section">
       <div class="section__head">
-        <h2>Depositor app</h2>
-        <p>Deposit USDC, hold shares, redeem synchronously or via the async queue. <em>Demo state — wire to the live contract on testnet.</em></p>
+        <h2>Vault · <span id="activeVaultName">SANDICK</span></h2>
+        <p>Deposit USDC, hold shares, redeem synchronously or via the async queue. <a href="#vaults" class="link-back">← all vaults</a> <em id="vaultDemoNote">Demo state — wire to the live contract on testnet.</em></p>
       </div>
 
       <div class="vault">
@@ -157,7 +157,7 @@
           <div class="stat card"><span class="stat__k">NAV / share</span><span class="stat__v" id="navPerShare">—</span><span class="stat__d" id="navDelta"></span></div>
           <div class="stat card"><span class="stat__k">Total assets</span><span class="stat__v" id="totalAssets">—</span><span class="stat__d">USDC equity</span></div>
           <div class="stat card"><span class="stat__k">Your shares</span><span class="stat__v" id="yourShares">—</span><span class="stat__d" id="yourValue"></span></div>
-          <div class="stat card"><span class="stat__k">Share supply</span><span class="stat__v" id="shareSupply">—</span><span class="stat__d">SAND-LP</span></div>
+          <div class="stat card"><span class="stat__k">Share supply</span><span class="stat__v" id="shareSupply">—</span><span class="stat__d" id="shareSupplySym">SAND-LP</span></div>
         </div>
 
         <div class="vault__actions">
@@ -185,7 +185,7 @@
             <!-- redeem -->
             <div class="action-pane is-hidden" data-pane="redeem">
               <div class="field">
-                <label for="redeemAmt">Shares <span>SAND-LP</span></label>
+                <label for="redeemAmt">Shares <span id="redeemSymLabel">SAND-LP</span></label>
                 <div class="input-wrap">
                   <input id="redeemAmt" type="number" min="0" step="1" value="0" />
                   <button class="max" data-max="redeem">MAX</button>
