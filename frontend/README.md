@@ -49,8 +49,8 @@ python -m http.server 8000 --directory frontend
   → claim`) that models CoreWriter's delayed settlement.
 - **Launch a vault** — a three-step explainer for deploying a new vault through
   the on-chain `VaultFactory` (pick basket → `createVault` → set fees & go live),
-  with a facts card (standard, platform fee, operator caps, custody). The button
-  is a demo stub today; wiring it to `factory.createVault` is the next step.
+  with a facts card (standard, platform fee, operator caps, custody). In demo mode
+  the button is a stub; in **live mode it calls `factory.createVault`** (see below).
 - **Admin panel** — manager-gated controls for the flagship (discover / build /
   submit basket / rebalance / bridge) with an action log.
 
@@ -73,18 +73,32 @@ window.APERTURE_CONFIG = { chain: {
   enabled: true,
   chainId: 998,
   rpcUrl: 'https://rpc.hyperliquid-testnet.xyz/evm',
-  vaultAddress: '0x…',   // deployed BasketVault
-  usdcAddress: '0x…',    // vault underlying (USDC)
+  factoryAddress: '0x…',  // deployed VaultFactory (powers the marketplace + launch)
+  vaultAddress: '0x…',    // flagship BasketVault (SANDICK) — the detail view
+  usdcAddress: '0x…',     // vault underlying (USDC)
+  coreParams: {           // platform HyperCore immutables (from sandick.deploy_config)
+    reader: '0x…', usdcSystemAddress: '0x…', usdcCoreTokenIndex: 0, coreScale: 1, tif: 3,
+  },
 }};
 ```
 
 What's live when enabled:
 
 - **Connect** — real wallet (`window.ethereum`); the button shows the address.
-- **Depositor** — NAV/share + supply + your shares/USDC read from the vault;
-  **Deposit** runs `approve` (if needed) then `deposit`; **Redeem** runs the
-  sync `redeem`; **Request redeem** runs `requestRedeem`; the queue renders the
-  contract's `pendingRedeemShares` / `claimableAssets`; **Claim** runs `claim`.
+- **Marketplace** — with `factoryAddress` set, the **Vaults** grid is read from
+  the chain: `factory.allVaults()` plus each vault's `totalAssets` (TVL),
+  `totalSupply` (→ all-time return vs the genesis 1.0 share price), `name`,
+  `symbol` and `manager`. The platform fee comes from `factory.protocolFeeBps()`.
+  The vault matching `vaultAddress` is flagged as the flagship. (Without
+  `factoryAddress` the grid stays in demo mode.)
+- **Launch a vault** — the button calls `factory.createVault(asset, name, symbol,
+  manager, coreParams)`; per-vault inputs are collected by prompt, the HyperCore
+  immutables come from `coreParams`. On success the marketplace reloads and the
+  new vault appears.
+- **Depositor** — NAV/share + supply + your shares/USDC read from the flagship
+  vault; **Deposit** runs `approve` (if needed) then `deposit`; **Redeem** runs
+  the sync `redeem`; **Request redeem** runs `requestRedeem`; the queue renders
+  the contract's `pendingRedeemShares` / `claimableAssets`; **Claim** runs `claim`.
 - **Admin** — the panel unlocks only if the connected wallet is the vault
   `manager` or `owner`. **Bridge** prompts a direction/amount and runs
   `bridgeToCore` / `bridgeFromCore`. (Pause/allow-list helpers exist on
@@ -94,6 +108,11 @@ Still off-chain: **submit basket** and **rebalance** order *encoding* (HIP-3
 asset ids + 1e8-scaled px/sz) is produced by the Python planner
 (`sandick.onchain` / `exec_cli`); `chain.submitBasket(orders)` is the ready hook
 to send that output.
+
+Per-vault detail: the deposit/calculator/admin deep-dive is bound to the single
+`vaultAddress` (the flagship), so non-flagship marketplace cards point back to it.
+A full per-vault detail view (re-pointing `chain` at any selected vault) is the
+next step — `chain._readAt(address, …)` already reads any vault by address.
 
 It's **off by default** — testnet sign-off (chainid 998) isn't complete, so the
 contract immutables it reads against must be verified first (see root `TODO.md`).

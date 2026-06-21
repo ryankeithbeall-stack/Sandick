@@ -33,6 +33,8 @@ export const VAULT_ABI = [
   { type: 'function', stateMutability: 'view', name: 'totalAssets', inputs: [], outputs: [{ type: 'uint256' }] },
   { type: 'function', stateMutability: 'view', name: 'totalSupply', inputs: [], outputs: [{ type: 'uint256' }] },
   { type: 'function', stateMutability: 'view', name: 'decimals', inputs: [], outputs: [{ type: 'uint8' }] },
+  { type: 'function', stateMutability: 'view', name: 'name', inputs: [], outputs: [{ type: 'string' }] },
+  { type: 'function', stateMutability: 'view', name: 'symbol', inputs: [], outputs: [{ type: 'string' }] },
   { type: 'function', stateMutability: 'view', name: 'asset', inputs: [], outputs: [{ type: 'address' }] },
   { type: 'function', stateMutability: 'view', name: 'paused', inputs: [], outputs: [{ type: 'bool' }] },
   { type: 'function', stateMutability: 'view', name: 'balanceOf', inputs: [{ type: 'address' }], outputs: [{ type: 'uint256' }] },
@@ -73,6 +75,34 @@ export const VAULT_ABI = [
   { type: 'function', stateMutability: 'nonpayable', name: 'unpause', inputs: [], outputs: [] },
 ];
 
+// Minimal ABI for the VaultFactory (the platform): enumerate vaults, read the
+// platform fee, and deploy new vaults.
+export const FACTORY_ABI = [
+  { type: 'function', stateMutability: 'view', name: 'vaultCount', inputs: [], outputs: [{ type: 'uint256' }] },
+  { type: 'function', stateMutability: 'view', name: 'allVaults', inputs: [], outputs: [{ type: 'address[]' }] },
+  { type: 'function', stateMutability: 'view', name: 'protocolFeeBps', inputs: [], outputs: [{ type: 'uint16' }] },
+  { type: 'function', stateMutability: 'view', name: 'protocolTreasury', inputs: [], outputs: [{ type: 'address' }] },
+  {
+    type: 'function', stateMutability: 'nonpayable', name: 'createVault',
+    inputs: [
+      { name: 'asset', type: 'address' },
+      { name: 'name', type: 'string' },
+      { name: 'symbol', type: 'string' },
+      { name: 'manager', type: 'address' },
+      {
+        name: 'core', type: 'tuple', components: [
+          { name: 'reader', type: 'address' },
+          { name: 'usdcSystemAddress', type: 'address' },
+          { name: 'usdcCoreTokenIndex', type: 'uint64' },
+          { name: 'coreScale', type: 'uint256' },
+          { name: 'tif', type: 'uint8' },
+        ],
+      },
+    ],
+    outputs: [{ type: 'address' }],
+  },
+];
+
 export const ERC20_ABI = [
   { type: 'function', stateMutability: 'view', name: 'balanceOf', inputs: [{ type: 'address' }], outputs: [{ type: 'uint256' }] },
   { type: 'function', stateMutability: 'view', name: 'allowance', inputs: [{ type: 'address' }, { type: 'address' }], outputs: [{ type: 'uint256' }] },
@@ -94,7 +124,10 @@ export class ApertureChain {
   /** Connect public + (optional) wallet clients. Requires cfg.enabled + addresses. */
   static async connect(cfg) {
     if (!cfg || !cfg.enabled) throw new Error('chain disabled in config.js');
-    if (!cfg.rpcUrl || !cfg.vaultAddress) throw new Error('rpcUrl and vaultAddress required');
+    if (!cfg.rpcUrl) throw new Error('rpcUrl required');
+    if (!cfg.vaultAddress && !cfg.factoryAddress) {
+      throw new Error('vaultAddress or factoryAddress required');
+    }
     const viem = await import(VIEM_CDN);
     const chain = {
       id: cfg.chainId,
@@ -115,6 +148,52 @@ export class ApertureChain {
   _read(functionName, args = []) {
     return this.publicClient.readContract({
       address: this.cfg.vaultAddress, abi: VAULT_ABI, functionName, args,
+    });
+  }
+
+  /** Read any vault by address (for the marketplace, not just cfg.vaultAddress). */
+  _readAt(address, functionName, args = []) {
+    return this.publicClient.readContract({ address, abi: VAULT_ABI, functionName, args });
+  }
+
+  /** Read the factory (the platform). Requires cfg.factoryAddress. */
+  _readFactory(functionName, args = []) {
+    if (!this.cfg.factoryAddress) throw new Error('factoryAddress required');
+    return this.publicClient.readContract({
+      address: this.cfg.factoryAddress, abi: FACTORY_ABI, functionName, args,
+    });
+  }
+
+  // ---- platform (factory) ----
+  vaultCount() { return this._readFactory('vaultCount'); }
+  protocolFeeBps() { return this._readFactory('protocolFeeBps'); }
+  protocolTreasury() { return this._readFactory('protocolTreasury'); }
+
+  /** Enumerate every vault on the platform with its live stats. Returns
+   *  [{ address, name, symbol, manager, asset, tvl, supply }] in raw units. */
+  async listVaults() {
+    const addrs = await this._readFactory('allVaults');
+    return Promise.all(addrs.map(async (address) => {
+      const [tvl, supply, name, symbol, manager, asset] = await Promise.all([
+        this._readAt(address, 'totalAssets'),
+        this._readAt(address, 'totalSupply'),
+        this._readAt(address, 'name'),
+        this._readAt(address, 'symbol'),
+        this._readAt(address, 'manager'),
+        this._readAt(address, 'asset'),
+      ]);
+      return { address, name, symbol, manager, asset, tvl, supply };
+    }));
+  }
+
+  /** Deploy a new vault through the factory. `core` is the CoreParams tuple
+   *  [reader, usdcSystemAddress, usdcCoreTokenIndex, coreScale, tif]. Returns the
+   *  tx hash; read back via listVaults() once mined (the new vault is appended). */
+  async createVault({ asset, name, symbol, manager, core }) {
+    this._assertWallet();
+    return this.walletClient.writeContract({
+      address: this.cfg.factoryAddress, abi: FACTORY_ABI, functionName: 'createVault',
+      args: [asset, name, symbol, manager, core], account: this.account,
     });
   }
 

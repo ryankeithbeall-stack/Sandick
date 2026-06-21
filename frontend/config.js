@@ -16,5 +16,15 @@ window.APERTURE_CONFIG = {
     vaultAddress: '',              // flagship BasketVault (SANDICK) for the detail view
     usdcAddress: '',               // vault underlying (USDC, 6dp)
     explorer: '',                  // optional block-explorer base url
+    // Platform-wide HyperCore immutables, shared by every vault on this chain.
+    // Produced by `python -m sandick.deploy_config`. Required to launch a vault
+    // from the UI (factory.createVault); leave blank to disable the launch flow.
+    coreParams: {
+      reader: '',                  // deployed HyperCoreReader address
+      usdcSystemAddress: '',       // 0x20..<usdcCoreTokenIndex>
+      usdcCoreTokenIndex: 0,
+      coreScale: 1,
+      tif: 3,                      // 1 ALO · 2 GTC · 3 IOC
+    },
   },
 };

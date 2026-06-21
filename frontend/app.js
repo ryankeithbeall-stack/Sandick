@@ -167,8 +167,12 @@ function renderBasket() {
 // ═══════════════════════════════════════════════════════════
 const platformFeePct = () => PLATFORM.protocolFeeBps / 100; // bps -> %
 
+// The marketplace renders `activeVaults`: the demo VAULTS by default, replaced
+// by on-chain data (factory.allVaults) when chain mode is live. See Live.loadVaults.
+let activeVaults = VAULTS;
+
 function renderPlatformStats() {
-  const tvl = VAULTS.reduce((s, v) => s + v.tvl, 0);
+  const tvl = activeVaults.reduce((s, v) => s + v.tvl, 0);
   const stats = $('#platformStats');
   if (stats) {
     stats.innerHTML = `
@@ -187,8 +191,13 @@ function renderPlatformStats() {
 function renderVaults() {
   const grid = $('#vaultsGrid');
   if (!grid) return;
-  // Flagship first, then by 30-day return (so the #1 performer leads).
-  const ordered = [...VAULTS].sort((a, b) =>
+  if (!activeVaults.length) {
+    grid.innerHTML = `<p class="muted" style="grid-column:1/-1">No vaults deployed yet — be the first via <a href="#launch">Launch a vault</a>.</p>`;
+    return;
+  }
+  // Flagship first, then by return (so the #1 performer leads). In live mode the
+  // return is all-time vs the genesis 1.0 share price; in demo it's a 30d figure.
+  const ordered = [...activeVaults].sort((a, b) =>
     (b.flagship ? 1 : 0) - (a.flagship ? 1 : 0) || b.ret30 - a.ret30);
 
   grid.innerHTML = ordered.map((v, i) => {
@@ -210,8 +219,8 @@ function renderVaults() {
         <p class="vcard__strategy">${v.strategy}</p>
         <dl class="vcard__metrics">
           <div><dt>TVL</dt><dd>${fmtUsd(v.tvl, 0)}</dd></div>
-          <div><dt>30d return</dt><dd class="${up ? 'up' : 'down'}">${up ? '+' : ''}${(v.ret30 * 100).toFixed(1)}%</dd></div>
-          <div><dt>Assets</dt><dd>${v.assetsN}</dd></div>
+          <div><dt>Return</dt><dd class="${up ? 'up' : 'down'}">${up ? '+' : ''}${(v.ret30 * 100).toFixed(1)}%</dd></div>
+          <div><dt>Assets</dt><dd>${v.assetsN ?? '—'}</dd></div>
         </dl>
         <footer class="vcard__foot">
           <span class="vcard__mgr">Mgr ${v.manager}</span>
@@ -231,19 +240,24 @@ function renderVaults() {
 }
 
 function openVault(id) {
-  const v = VAULTS.find((x) => x.id === id);
+  const v = activeVaults.find((x) => x.id === id);
   if (!v) return;
+  // The detail view below is bound to the configured flagship vault, so flagship
+  // cards scroll to it; others point back to it (per-vault detail is a follow-up).
   if (v.flagship) {
     $('#flagship').scrollIntoView({ behavior: 'smooth' });
   } else {
-    toast(`${v.name} — full vault detail is coming soon (flagship SANDICK is live below)`);
+    toast(`${v.name} — full vault detail is coming soon (the flagship is live below)`);
   }
 }
 
 function wireLaunch() {
   const btn = $('#launchBtn');
-  if (btn) btn.addEventListener('click', () =>
-    toast('Factory flow: deploy a BasketVault via createVault — testnet only (demo)'));
+  if (!btn) return;
+  btn.addEventListener('click', () => {
+    if (LIVE) return Live.launch();
+    toast('Factory flow: deploy a BasketVault via createVault — testnet only (demo)');
+  });
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -563,7 +577,10 @@ const Live = {
     if (chain) return chain;
     const mod = await import('./chain.js');
     chain = await mod.ApertureChain.connect(CHAIN_CFG);
-    [dec.asset, dec.share] = await Promise.all([chain.usdcDecimals(), chain.shareDecimals()]);
+    dec.asset = await chain.usdcDecimals();
+    // Share decimals = asset decimals + the vault's _decimalsOffset (6); read it
+    // from the flagship vault when configured, else derive it (same for all vaults).
+    dec.share = CHAIN_CFG.vaultAddress ? await chain.shareDecimals() : dec.asset + 6;
     return chain;
   },
 
@@ -571,10 +588,73 @@ const Live = {
     try {
       await Live.ensure();
       if (chain.account) await Live._afterConnect(false);
+      await Live.loadVaults();
     } catch (e) {
       toast('Chain unavailable — check config.js (' + e.message + ')');
     }
     refreshVault();
+  },
+
+  /** Replace the demo marketplace with on-chain vaults from factory.allVaults().
+   *  No-op (keeps the demo grid) when no factoryAddress is configured. */
+  async loadVaults() {
+    if (!chain || !CHAIN_CFG.factoryAddress) return;
+    try {
+      const [list, feeBps] = await Promise.all([chain.listVaults(), chain.protocolFeeBps()]);
+      PLATFORM.protocolFeeBps = Number(feeBps);
+      const flagAddr = (CHAIN_CFG.vaultAddress || '').toLowerCase();
+      activeVaults = list.map((v) => {
+        const tvl = toNum(v.tvl, dec.asset);
+        const supply = toNum(v.supply, dec.share);
+        const pps = supply > 0 ? tvl / supply : 1;
+        const short = (a) => a.slice(0, 5) + '…' + a.slice(-4);
+        return {
+          id: v.address,
+          name: v.name || v.symbol || short(v.address),
+          symbol: v.symbol || '',
+          flagship: v.address.toLowerCase() === flagAddr,
+          strategy: 'On-chain vault · ' + (v.symbol || short(v.address)),
+          assetsN: null,                 // basket size isn't on-chain in the registry
+          manager: short(v.manager),
+          tvl,
+          ret30: pps - 1,                // all-time return vs the genesis 1.0 share price
+          status: 'live',
+        };
+      });
+      renderPlatformStats();
+      renderVaults();
+    } catch (e) {
+      toast('Vault list read failed: ' + (e.shortMessage || e.message));
+    }
+  },
+
+  /** Deploy a new vault via factory.createVault. Collects the per-vault inputs by
+   *  prompt (consistent with the admin bridge flow); the HyperCore immutables come
+   *  from CHAIN_CFG.coreParams (set by sandick.deploy_config). */
+  async launch() {
+    try {
+      await Live.ensure();
+      if (!CHAIN_CFG.factoryAddress) return toast('Set chain.factoryAddress in config.js to launch vaults');
+      if (!chain.account) { await Live.connect(); if (!chain.account) return; }
+      const cp = CHAIN_CFG.coreParams;
+      if (!cp || !cp.reader) return toast('Set chain.coreParams in config.js (from deploy_config) to launch');
+
+      const name = (window.prompt('Vault share name (e.g. "MY-BASKET Vault")', '') || '').trim();
+      if (!name) return;
+      const symbol = (window.prompt('Vault share symbol (e.g. "sMYB")', '') || '').trim();
+      if (!symbol) return;
+      const manager = (window.prompt('Manager (trade-only) address', chain.account) || '').trim();
+      if (!manager) return;
+      const asset = (window.prompt('Underlying asset (USDC) address', CHAIN_CFG.usdcAddress || '') || '').trim();
+      if (!asset) return;
+
+      const core = [cp.reader, cp.usdcSystemAddress, BigInt(cp.usdcCoreTokenIndex), BigInt(cp.coreScale), Number(cp.tif)];
+      await Live._send('Create vault', () => chain.createVault({ asset, name, symbol, manager, core }));
+      await Live.loadVaults();             // the new vault is appended to the registry
+      toast(`Vault “${name}” deployed — find it in the marketplace`);
+    } catch (e) {
+      toast('Launch failed: ' + (e.shortMessage || e.message));
+    }
   },
 
   async connect() {
