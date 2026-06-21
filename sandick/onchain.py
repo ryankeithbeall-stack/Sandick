@@ -1,7 +1,7 @@
 """Bridge the off-chain planner to the on-chain vault.
 
 Converts an AllocationPlan into the integer-encoded `Order` tuples that
-`SandickVault.submitBasket` expects:
+`BasketVault.submitBasket` expects:
 
   * asset id   — HIP-3 formula: 100000 + perp_dex_index*10000 + index_in_meta
   * limitPx/sz — HyperCore integers, scaled by 1e8

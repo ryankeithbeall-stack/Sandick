@@ -1,6 +1,6 @@
 """Derive the on-chain vault's deploy-time immutables from live Hyperliquid data.
 
-The SandickVault / HyperCoreReader constructors need values that only exist on a
+The BasketVault / HyperCoreReader constructors need values that only exist on a
 live network: the Trade.xyz perp-dex index, each coin's HIP-3 asset id, USDC's
 HyperCore token index + system address, and the EVM<->Core decimal scale. This
 module computes them (pure helpers are unit-tested; the live fetch needs the SDK

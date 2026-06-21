@@ -107,6 +107,15 @@ class Contract {
   }
 }
 
+// Wrap an already-deployed contract at `address` (hex string or Address) with a
+// given ABI — e.g. a vault returned by VaultFactory.createVault.
+function at(vm, abi, address) {
+  const iface = new ethers.Interface(abi);
+  const a =
+    typeof address === "string" ? createAddressFromString(address.toLowerCase()) : address;
+  return new Contract(vm, a, iface);
+}
+
 // Advance the VM clock by `seconds` (for time-dependent logic like timeouts).
 function warp(vm, seconds) {
   vm.__timestamp = (vm.__timestamp ?? 0n) + BigInt(seconds);
@@ -117,4 +126,4 @@ function setTimestamp(vm, ts) {
   vm.__timestamp = BigInt(ts);
 }
 
-module.exports = { makeVM, deploy, ACCOUNTS, warp, setTimestamp };
+module.exports = { makeVM, deploy, at, ACCOUNTS, warp, setTimestamp };

@@ -1,6 +1,6 @@
 /* SANDICK — on-chain layer (optional, config-gated).
  *
- * A thin viem wrapper over the deployed SandickVault for the eventual live
+ * A thin viem wrapper over the deployed BasketVault for the eventual live
  * wiring. It is intentionally decoupled from app.js's demo state machine: import
  * it and call these helpers from the UI once `config.js` has `chain.enabled`.
  *
@@ -18,7 +18,7 @@
  *   const nav = await chain.totalAssets();
  */
 
-// The Order struct submitBasket expects (mirrors SandickVaultBase.Order).
+// The Order struct submitBasket expects (mirrors BasketVaultBase.Order).
 const ORDER_COMPONENTS = [
   { name: 'assetId', type: 'uint32' },
   { name: 'isBuy', type: 'bool' },

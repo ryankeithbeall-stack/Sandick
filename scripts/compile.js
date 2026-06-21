@@ -7,9 +7,10 @@ const ROOT = path.resolve(__dirname, "..");
 const read = (p) => fs.readFileSync(path.join(ROOT, p), "utf8");
 
 const ENTRIES = [
-  "contracts/src/SandickVault.sol",
+  "contracts/src/BasketVault.sol",
+  "contracts/src/VaultFactory.sol",
   "contracts/src/HyperCoreReader.sol",
-  "contracts/test/mocks/MockSandickVault.sol",
+  "contracts/test/mocks/MockBasketVault.sol",
   "contracts/test/mocks/MockERC20.sol",
   "contracts/test/mocks/MockMarginSummary.sol",
 ];
@@ -33,6 +34,7 @@ function compile() {
     sources,
     settings: {
       optimizer: { enabled: true, runs: 200 },
+      viaIR: true,
       evmVersion: "shanghai",
       outputSelection: {
         "*": {

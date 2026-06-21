@@ -1,8 +1,12 @@
-# Sandick Vault — on-chain (HyperEVM) contracts
+# Basket Vault platform — on-chain (HyperEVM) contracts
 
-A **trustless, tokenized vault** on Hyperliquid's **HyperEVM** that custodies USDC
-and trades an equal-weighted HIP-3 basket on **HyperCore** (via the Trade.xyz
-builder dex) through the **CoreWriter** system contract.
+A **vault deployment platform** on Hyperliquid's **HyperEVM**. Anyone can deploy a
+**trustless, tokenized vault** (`BasketVault`) through the **`VaultFactory`**; each
+vault custodies USDC and trades an equal-weighted HIP-3 basket on **HyperCore**
+(via the Trade.xyz builder dex) through the **CoreWriter** system contract.
+
+The platform earns a **protocol fee** on every vault it hosts (see [Fees](#fees)).
+The flagship **SANDICK** vault is just the first vault created through the factory.
 
 > ⚠️ **UNAUDITED — not for mainnet funds.** The accounting/trust logic is tested,
 > but the HyperCore integration has unverified inputs (see below) and the whole
@@ -26,14 +30,15 @@ builder dex) through the **CoreWriter** system contract.
 
 ```
 src/
-  SandickVaultBase.sol        # ERC-4626 + roles + NAV + withdrawal caps (abstract)
-  SandickVault.sol            # production: CoreWriter write-path + reader NAV
+  BasketVaultBase.sol         # ERC-4626 + roles + NAV + withdrawal caps + fees (abstract)
+  BasketVault.sol             # production: CoreWriter write-path + reader NAV
+  VaultFactory.sol            # the platform: deploys + registers vaults, owns the protocol fee
   HyperCoreReader.sol         # NAV via accountMarginSummary precompile (0x..080F)
   lib/HyperCoreActions.sol    # CoreWriter action encodings (confirmed)
   interfaces/                 # ICoreWriter, IHyperCoreReader
 test/
   vault.test.js               # in-process EVM tests (ethereumjs)
-  mocks/                      # MockERC20, MockCore, MockSandickVault
+  mocks/                      # MockERC20, MockCore, MockBasketVault
 ```
 
 ## What's confirmed vs must-verify
@@ -110,9 +115,11 @@ spot-balance precompile), keeping share price continuous across the bridge.
 
 ## Fees
 
-Three fees, all owner-configured within hard caps (`setFeeConfig`; mgmt ≤ 5%,
-perf ≤ 30%, exit ≤ 1%), defaulting to **2%/yr management · 10% performance · 0.1%
-exit**:
+### Operator fees
+
+Three operator fees, all owner-configured within hard caps (`setFeeConfig`;
+mgmt ≤ 5%, perf ≤ 30%, exit ≤ 1%), defaulting to **2%/yr management · 10%
+performance · 0.1% exit**:
 
 - **Management** — streams on NAV pro-rata to time.
 - **Performance** — a cut of any gain in price-per-share above a global
@@ -120,9 +127,19 @@ exit**:
 - **Exit** — a small fee on redemption, **retained in the vault** so it accrues
   to the holders who stay (and discourages churn / queue gaming).
 
-Management + performance fees are minted as **dilution shares** to the treasury
-(`feeRecipient`) rather than paid in USDC — so the *no funds ever leave the
-vault* invariant is untouched; the treasury is just another share holder.
+### Platform fee (the protocol's cut)
+
+On top of the operator fees, every vault streams a **platform fee** (bps/yr of
+NAV, capped at **2%/yr**) to the **protocol treasury**. This is how the platform
+earns from each vault it hosts. Crucially it is governed by a **`protocolAdmin`**
+— set to the `VaultFactory` at creation — **not** the vault `owner`, so a vault
+operator can configure their own fees but **can never reduce or remove the
+platform's cut**. The factory owner adjusts it via `setVaultProtocolFee` (per
+vault) or `setDefaultProtocolFee` (for future vaults). Management, performance,
+and platform fees are all minted as **dilution shares** to their respective
+treasuries (`feeRecipient` for the operator, `protocolTreasury` for the platform)
+rather than paid in USDC — so the *no funds ever leave the vault* invariant is
+untouched; each treasury is just another share holder.
 `_accrueFees()` runs before every deposit/withdraw/redeem and queue action
 (and via the permissionless `accrueFees()` poke) so share price is always
 fee-current. **Audit focus:** the performance fee keys off on-chain NAV, so the
@@ -151,6 +168,7 @@ source map, and prints per-file line coverage (writing `coverage.json` +
 threshold (CI gates the total at 65%).
 
 The report is honest about where the tests stop: the trust/accounting core
-(`SandickVaultBase.sol`) is ~96% covered, but the production HyperCore write-path
-(`SandickVault.sol`, `lib/HyperCoreActions.sol`) is exercised only through mocks
-and stays low until the testnet round-trip lands — see the root `TODO.md`.
+(`BasketVaultBase.sol`) and the `VaultFactory` are ~89% covered, but the
+production HyperCore write-path (`BasketVault.sol`, `lib/HyperCoreActions.sol`) is
+exercised only through mocks and stays low until the testnet round-trip lands —
+see the root `TODO.md`.

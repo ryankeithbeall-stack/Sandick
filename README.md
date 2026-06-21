@@ -1,8 +1,13 @@
-# Sandick — HIP-3 equal-weighted basket vault
+# Basket vault platform — HIP-3 equal-weighted basket vaults
 
-Tooling for an **admin-managed, equal-weighted basket vault** on Hyperliquid
+A **vault deployment platform** on Hyperliquid
 [HIP-3](https://hyperliquid.gitbook.io/hyperliquid-docs) (builder-deployed) perp
-markets.
+markets. Anyone can deploy an **admin-managed, equal-weighted basket vault**
+through the on-chain [`VaultFactory`](contracts/src/VaultFactory.sol); the platform
+takes a **protocol fee** on every vault it hosts (see
+[On-chain vault](#on-chain-vault-custom-trustless)). The **SANDICK** basket below
+is the **flagship vault** — the first one deployed through the factory and the
+reference for the tooling in this repo.
 
 ## Roles
 
@@ -205,12 +210,22 @@ tests/           # pytest suite (run: python -m pytest)
 
 ## On-chain vault (custom, trustless)
 
-A fully on-chain, tokenized vault lives in [`contracts/`](contracts/): an
-ERC-4626 HyperEVM vault that custodies USDC and trades the HIP-3 basket on
-HyperCore via CoreWriter. Depositors get transferable shares; the manager can
-trade but never withdraw funds. The off-chain planner feeds it via
-`sandick.onchain.plan_to_onchain_orders` (HIP-3 asset ids + 1e8-scaled prices).
-See [contracts/README.md](contracts/README.md). **Unaudited — testnet only.**
+A fully on-chain, tokenized vault platform lives in [`contracts/`](contracts/):
+
+- **`VaultFactory`** — the platform. Anyone calls `createVault(...)` to deploy
+  their own vault; the factory registers it (enumerable via `allVaults()`) and
+  stamps it with the **platform fee** + treasury. The factory stays each vault's
+  `protocolAdmin`, so the platform can adjust the fee it earns but a vault
+  operator can never zero it out.
+- **`BasketVault`** — an ERC-4626 HyperEVM vault that custodies USDC and trades
+  the HIP-3 basket on HyperCore via CoreWriter. Depositors get transferable
+  shares; the manager can trade but never withdraw funds. Each vault charges its
+  operator's mgmt/perf/exit fees **plus** the platform fee (all as dilution
+  shares; no USDC ever leaves the vault).
+
+The off-chain planner feeds a vault via `sandick.onchain.plan_to_onchain_orders`
+(HIP-3 asset ids + 1e8-scaled prices). See
+[contracts/README.md](contracts/README.md). **Unaudited — testnet only.**
 
 ## Architecture decisions
 
@@ -220,19 +235,26 @@ See [contracts/README.md](contracts/README.md). **Unaudited — testnet only.**
 - **Dex scope:** a single Trade.xyz HIP-3 dex, so all legs share one USDC
   collateral pool (no cross-dex margin fragmentation).
 
-## Deploy the on-chain vault (testnet)
+## Deploy the platform + flagship vault (testnet)
 
 ```bash
 # 1. Derive the on-chain immutables from live data (perpDexs/meta/spotMeta):
 python -m sandick.deploy_config --dex-name tradexyz --out config/deploy.json
 
-# 2. Deploy reader + vault and allow-list the basket assets (dry-run by default):
+# 2. Deploy reader + VaultFactory, create the flagship vault through the factory,
+#    and allow-list the basket assets (dry-run by default):
 RPC_URL=... PRIVATE_KEY=... VAULT_OWNER=0x... VAULT_MANAGER=0x... USDC_ADDRESS=0x... \
+  PROTOCOL_TREASURY=0x... PROTOCOL_FEE_BPS=100 \
   node scripts/deploy.js config/deploy.json --execute
 ```
 
-`deploy_config` computes the Trade.xyz `perpDexIndex`, each coin's HIP-3 asset id,
-USDC's system address / token index, and the EVM↔Core `coreScale`.
+Step 2 deploys the `HyperCoreReader` + `VaultFactory` (owned by `PLATFORM_OWNER`,
+default `VAULT_OWNER`), then calls `factory.createVault(...)` to mint the flagship
+`BasketVault`, allow-lists the basket assets, and hands vault ownership to
+`VAULT_OWNER`. `PROTOCOL_FEE_BPS` (≤ 200 = 2%/yr, default 100) is the platform fee
+streamed to `PROTOCOL_TREASURY` from every vault. `deploy_config` computes the
+Trade.xyz `perpDexIndex`, each coin's HIP-3 asset id, USDC's system address /
+token index, and the EVM↔Core `coreScale`.
 
 ## Keeper bot (testnet-first)
 

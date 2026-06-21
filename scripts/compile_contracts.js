@@ -12,9 +12,10 @@ function readDisk(p) {
 
 // Entry sources (keyed by repo-relative path; solc canonicalizes relative imports).
 const entries = [
-  "contracts/src/SandickVault.sol",
+  "contracts/src/BasketVault.sol",
+  "contracts/src/VaultFactory.sol",
   "contracts/src/HyperCoreReader.sol",
-  "contracts/test/mocks/MockSandickVault.sol",
+  "contracts/test/mocks/MockBasketVault.sol",
   "contracts/test/mocks/MockERC20.sol",
   "contracts/test/mocks/MockMarginSummary.sol",
 ];
@@ -38,6 +39,7 @@ const input = {
   sources,
   settings: {
     optimizer: { enabled: true, runs: 200 },
+    viaIR: true,
     outputSelection: { "*": { "*": ["abi", "evm.bytecode.object"] } },
   },
 };

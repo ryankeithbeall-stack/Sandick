@@ -10,8 +10,10 @@ import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol
 import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
-/// @title SandickVaultBase
+/// @title BasketVaultBase
 /// @notice Trustless, tokenized HyperEVM vault for an equal-weighted HIP-3 basket.
+/// One of many vaults that can be spun up on the platform (see {VaultFactory}); the
+/// flagship SANDICK basket is just one configuration of this contract.
 ///
 /// Trust model:
 ///  * Depositors deposit USDC and receive transferable ERC-20 (ERC-4626) shares.
@@ -23,10 +25,16 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 ///    never transfer assets to itself or any third party. Worst-case manager
 ///    abuse is bad trading, not theft.
 ///
+/// Platform model:
+///  * Every vault streams a platform fee (a slice of NAV per year) to the
+///    protocol treasury, governed by a `protocolAdmin` that the vault operator
+///    (owner) cannot change. This is how the platform earns from every vault it
+///    hosts, independent of whatever fees the operator sets for themselves.
+///
 /// HyperCore integration (CoreWriter actions + read precompiles) is abstracted
 /// behind the `_core*` hooks so the accounting/trust logic is testable against a
-/// mock; the concrete implementation lives in {SandickVault}.
-abstract contract SandickVaultBase is ERC4626, Ownable, ReentrancyGuard, Pausable {
+/// mock; the concrete implementation lives in {BasketVault}.
+abstract contract BasketVaultBase is ERC4626, Ownable, ReentrancyGuard, Pausable {
     using SafeERC20 for IERC20;
     using Math for uint256;
 
@@ -77,18 +85,22 @@ abstract contract SandickVaultBase is ERC4626, Ownable, ReentrancyGuard, Pausabl
     uint256 public reservedAssets;
 
     // --- Fees (all charged as dilution shares; no USDC ever leaves the vault) ---
-    // Management + performance fees mint shares to `feeRecipient` (a treasury),
-    // so the "manager can never move funds out" invariant is untouched: the fee
-    // recipient is just another share holder who redeems like anyone else. The
-    // exit fee is retained *in the vault*, boosting NAV for the holders who stay.
+    // Management + performance fees mint shares to `feeRecipient` (the operator's
+    // treasury), so the "manager can never move funds out" invariant is untouched:
+    // the fee recipient is just another share holder who redeems like anyone else.
+    // The exit fee is retained *in the vault*, boosting NAV for the holders who
+    // stay. On top of the operator's fees, a *platform* management fee streams to
+    // the protocol treasury (see protocol-fee section below).
     uint256 internal constant BPS = 10_000;
     uint256 internal constant SECONDS_PER_YEAR = 365 days;
     /// @notice Hard caps on owner-set fees (governance can never exceed these).
     uint16 public constant MAX_MANAGEMENT_FEE_BPS = 500; // 5%/yr
     uint16 public constant MAX_PERFORMANCE_FEE_BPS = 3000; // 30%
     uint16 public constant MAX_EXIT_FEE_BPS = 100; // 1%
+    /// @notice Hard cap on the platform fee the protocol admin can set.
+    uint16 public constant MAX_PROTOCOL_FEE_BPS = 200; // 2%/yr of NAV
 
-    /// @notice Treasury that receives fee shares.
+    /// @notice Operator treasury that receives the operator fee shares.
     address public feeRecipient;
     /// @notice Annual management fee (basis points of NAV).
     uint16 public managementFeeBps;
@@ -100,6 +112,17 @@ abstract contract SandickVaultBase is ERC4626, Ownable, ReentrancyGuard, Pausabl
     uint256 public highWaterMark;
     /// @notice Timestamp the management fee was last accrued to.
     uint256 public lastFeeAccrual;
+
+    // --- Platform fee (the protocol's cut of every vault) ---
+    // A management-style fee on NAV that streams to the protocol treasury. It is
+    // governed by `protocolAdmin` (the platform / {VaultFactory}), NOT by the
+    // vault `owner`, so a vault operator can never zero out the platform's fee.
+    /// @notice Address allowed to set the platform fee (the platform governance).
+    address public protocolAdmin;
+    /// @notice Protocol treasury that receives the platform fee shares.
+    address public protocolTreasury;
+    /// @notice Annual platform fee (basis points of NAV), capped by MAX_PROTOCOL_FEE_BPS.
+    uint16 public protocolFeeBps;
 
     /// @dev A single order leg. Prices/sizes are in HyperCore integer units; the
     /// off-chain planner produces these from the equal-weight plan.
@@ -126,8 +149,11 @@ abstract contract SandickVaultBase is ERC4626, Ownable, ReentrancyGuard, Pausabl
     event RedemptionBridgeForced(address indexed caller, uint256 amount);
     event FeesAccrued(uint256 managementAssets, uint256 performanceAssets, uint256 sharesMinted);
     event FeeConfigUpdated(address recipient, uint16 managementBps, uint16 performanceBps, uint16 exitBps);
+    event ProtocolFeeConfigUpdated(address treasury, uint16 feeBps);
+    event ProtocolAdminUpdated(address indexed admin);
 
     error NotManager();
+    error NotProtocolAdmin();
     error ZeroAddress();
     error AssetNotAllowed(uint32 assetId);
     error ZeroAmount();
@@ -145,24 +171,40 @@ abstract contract SandickVaultBase is ERC4626, Ownable, ReentrancyGuard, Pausabl
         _;
     }
 
+    modifier onlyProtocolAdmin() {
+        if (msg.sender != protocolAdmin) revert NotProtocolAdmin();
+        _;
+    }
+
     constructor(
         IERC20 asset_,
         string memory name_,
         string memory symbol_,
         address manager_,
-        address owner_
+        address owner_,
+        address protocolAdmin_,
+        address protocolTreasury_,
+        uint16 protocolFeeBps_
     ) ERC20(name_, symbol_) ERC4626(asset_) Ownable(owner_) {
         if (manager_ == address(0) || owner_ == address(0)) revert ZeroAddress();
         manager = manager_;
         lastManagerAction = block.timestamp;
         managerTimeout = 7 days; // backstop opens after a week of manager silence
 
-        feeRecipient = owner_; // treasury defaults to the owner; change via setFeeConfig
+        feeRecipient = owner_; // operator treasury defaults to the owner; change via setFeeConfig
         managementFeeBps = 200; // 2%/yr
         performanceFeeBps = 1000; // 10% over high-water mark
         exitFeeBps = 10; // 0.1%, retained in the vault
         lastFeeAccrual = block.timestamp;
+
+        if (protocolFeeBps_ > MAX_PROTOCOL_FEE_BPS) revert FeeTooHigh();
+        if (protocolFeeBps_ > 0 && protocolTreasury_ == address(0)) revert ZeroAddress();
+        protocolAdmin = protocolAdmin_;
+        protocolTreasury = protocolTreasury_;
+        protocolFeeBps = protocolFeeBps_;
+
         emit ManagerUpdated(manager_);
+        emit ProtocolFeeConfigUpdated(protocolTreasury_, protocolFeeBps_);
     }
 
     /// @dev Record manager liveness; resets the redemption-backstop countdown.
@@ -375,8 +417,9 @@ abstract contract SandickVaultBase is ERC4626, Ownable, ReentrancyGuard, Pausabl
     //                                 Fees                                   //
     // --------------------------------------------------------------------- //
 
-    /// @notice Set the fee recipient and rates (all bounded by the MAX_* caps).
-    /// Accrues at the old rates first so a rate change is never retroactive.
+    /// @notice Set the operator fee recipient and rates (all bounded by the MAX_*
+    /// caps). Accrues at the old rates first so a rate change is never retroactive.
+    /// This controls only the *operator's* fees — never the platform fee.
     function setFeeConfig(
         address recipient,
         uint16 managementBps,
@@ -397,6 +440,26 @@ abstract contract SandickVaultBase is ERC4626, Ownable, ReentrancyGuard, Pausabl
         emit FeeConfigUpdated(recipient, managementBps, performanceBps, exitBps);
     }
 
+    /// @notice Set the platform fee + treasury. Restricted to the `protocolAdmin`
+    /// (the platform), so a vault operator can never reduce or remove the
+    /// platform's cut. Accrues at the old rate first.
+    function setProtocolFeeConfig(address treasury, uint16 feeBps) external onlyProtocolAdmin {
+        if (feeBps > MAX_PROTOCOL_FEE_BPS) revert FeeTooHigh();
+        if (feeBps > 0 && treasury == address(0)) revert ZeroAddress();
+        _accrueFees();
+        protocolTreasury = treasury;
+        protocolFeeBps = feeBps;
+        emit ProtocolFeeConfigUpdated(treasury, feeBps);
+    }
+
+    /// @notice Hand the platform-fee governance to a new admin (e.g. migrate to a
+    /// new factory or a governance multisig). Set to zero to renounce — which
+    /// freezes the platform fee at its current rate forever.
+    function setProtocolAdmin(address newAdmin) external onlyProtocolAdmin {
+        protocolAdmin = newAdmin;
+        emit ProtocolAdminUpdated(newAdmin);
+    }
+
     /// @notice Net price-per-share (1e18), i.e. NAV / supply.
     function pricePerShare() public view returns (uint256) {
         uint256 supply = totalSupply();
@@ -408,11 +471,13 @@ abstract contract SandickVaultBase is ERC4626, Ownable, ReentrancyGuard, Pausabl
         _accrueFees();
     }
 
-    /// @dev Accrue management + performance fees as dilution shares to the
-    /// treasury. Management fee streams on NAV pro-rata to elapsed time;
-    /// performance fee takes a cut of any gain in price-per-share above the
-    /// high-water mark. Minting shares keeps NAV constant and dilutes existing
-    /// holders by exactly the fee value — no USDC moves. Called before every
+    /// @dev Accrue management + performance + platform fees as dilution shares.
+    /// The operator management fee and the platform fee both stream on NAV
+    /// pro-rata to elapsed time; the performance fee takes a cut of any gain in
+    /// price-per-share above the high-water mark (operator only). Minting shares
+    /// keeps NAV constant and dilutes existing holders by exactly the fee value —
+    /// no USDC moves. The platform fee shares go to `protocolTreasury`, the
+    /// operator fee shares to `feeRecipient`. Called before every
     /// deposit/withdraw/redeem and queue action so share price is fee-correct.
     function _accrueFees() internal {
         uint256 ts = block.timestamp;
@@ -430,6 +495,8 @@ abstract contract SandickVaultBase is ERC4626, Ownable, ReentrancyGuard, Pausabl
 
         uint256 mgmtAssets =
             elapsed == 0 ? 0 : (nav * elapsed).mulDiv(managementFeeBps, BPS * SECONDS_PER_YEAR);
+        uint256 protocolAssets =
+            elapsed == 0 ? 0 : (nav * elapsed).mulDiv(protocolFeeBps, BPS * SECONDS_PER_YEAR);
 
         uint256 perfAssets = 0;
         if (pps > highWaterMark) {
@@ -437,18 +504,28 @@ abstract contract SandickVaultBase is ERC4626, Ownable, ReentrancyGuard, Pausabl
             perfAssets = gain.mulDiv(performanceFeeBps, BPS);
         }
 
-        uint256 feeAssets = mgmtAssets + perfAssets;
+        uint256 operatorAssets = mgmtAssets + perfAssets; // -> feeRecipient
+        uint256 feeAssets = operatorAssets + protocolAssets; // total dilution
         uint256 minted = 0;
-        if (feeAssets > 0 && feeAssets < nav && feeRecipient != address(0)) {
-            // shares whose value equals feeAssets at the post-mint price
+        if (feeAssets > 0 && feeAssets < nav) {
+            // total shares whose value equals feeAssets at the post-mint price
             minted = feeAssets.mulDiv(supply, nav - feeAssets);
-            if (minted > 0) _mint(feeRecipient, minted);
+            if (minted > 0) {
+                // Platform takes its slice off the top; the operator gets the rest.
+                uint256 protocolShares =
+                    protocolAssets == 0 ? 0 : minted.mulDiv(protocolAssets, feeAssets);
+                if (protocolShares > 0) _mint(protocolTreasury, protocolShares);
+                uint256 operatorShares = minted - protocolShares;
+                if (operatorShares > 0 && feeRecipient != address(0)) {
+                    _mint(feeRecipient, operatorShares);
+                }
+            }
         }
 
         // The realized (post-fee) price-per-share is the new high-water mark.
         uint256 newPps = nav.mulDiv(1e18, totalSupply());
         if (newPps > highWaterMark) highWaterMark = newPps;
-        emit FeesAccrued(mgmtAssets, perfAssets, minted);
+        emit FeesAccrued(mgmtAssets + protocolAssets, perfAssets, minted);
     }
 
     // Exit fee, applied on the way out (OZ ERC4626Fees-style). The fee stays in

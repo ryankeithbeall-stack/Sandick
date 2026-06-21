@@ -1,23 +1,27 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.26;
 
-import {SandickVaultBase} from "./SandickVaultBase.sol";
+import {BasketVaultBase} from "./BasketVaultBase.sol";
 import {HyperCoreActions} from "./lib/HyperCoreActions.sol";
 import {IHyperCoreReader} from "./interfaces/IHyperCoreReader.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
-/// @title SandickVault
+/// @title BasketVault
 /// @notice Production vault wired to HyperCore via CoreWriter (write path) and a
 /// read precompile reader (NAV). The contract itself is the HyperCore trading
 /// account — it acts only on its own behalf, which matches CoreWriter semantics.
+///
+/// One deployable basket vault on the platform. Its name/symbol and basket are
+/// supplied at construction (typically by {VaultFactory}); the flagship SANDICK
+/// vault is just one instance of this contract.
 ///
 /// Status: the CoreWriter encodings (orders, USD class transfer, spot send) are
 /// confirmed against hyper-evm-lib + the official docs. The NAV reader and the
 /// USDC system-address / decimal-scaling immutables are UNVERIFIED inputs that
 /// must be confirmed on testnet. This contract is UNAUDITED — do not deploy with
 /// real funds before an audit and a full testnet sign-off.
-contract SandickVault is SandickVaultBase {
+contract BasketVault is BasketVaultBase {
     using SafeERC20 for IERC20;
     using HyperCoreActions for *;
 
@@ -39,14 +43,30 @@ contract SandickVault is SandickVaultBase {
 
     constructor(
         IERC20 asset_,
+        string memory name_,
+        string memory symbol_,
         address manager_,
         address owner_,
         IHyperCoreReader reader_,
         address usdcSystemAddress_,
         uint64 usdcCoreTokenIndex_,
         uint256 coreScale_,
-        uint8 tif_
-    ) SandickVaultBase(asset_, "Sandick Vault", "sANDICK", manager_, owner_) {
+        uint8 tif_,
+        address protocolAdmin_,
+        address protocolTreasury_,
+        uint16 protocolFeeBps_
+    )
+        BasketVaultBase(
+            asset_,
+            name_,
+            symbol_,
+            manager_,
+            owner_,
+            protocolAdmin_,
+            protocolTreasury_,
+            protocolFeeBps_
+        )
+    {
         require(address(reader_) != address(0) && usdcSystemAddress_ != address(0), "zero addr");
         require(coreScale_ > 0, "scale");
         require(tif_ >= 1 && tif_ <= 3, "tif");

@@ -3,7 +3,7 @@
 // withdrawal caps, and the trade-only manager restrictions.
 const assert = require("assert");
 const { compile } = require("../../scripts/compile");
-const { makeVM, deploy, ACCOUNTS, warp } = require("../../scripts/evm");
+const { makeVM, deploy, at, ACCOUNTS, warp } = require("../../scripts/evm");
 
 const SEVEN_DAYS = 7n * 24n * 60n * 60n;
 
@@ -30,7 +30,7 @@ async function main() {
     const vm = await makeVM();
     const usdc = await deploy(vm, artifacts.MockERC20, ["USD Coin", "USDC", 6]);
     const core = await deploy(vm, artifacts.MockCore, [a(usdc.address)]);
-    const vault = await deploy(vm, artifacts.MockSandickVault, [
+    const vault = await deploy(vm, artifacts.MockBasketVault, [
       a(usdc.address),
       a(manager),
       a(owner),
@@ -188,14 +188,15 @@ async function main() {
     assert.equal(await reader.call("accountEquityUsd", [a(alice)]), 0n);
   });
 
-  await test("production SandickVault NAV = idle + reader equity", async () => {
+  await test("production BasketVault NAV = idle + reader equity", async () => {
     const vm = await makeVM();
     const usdc = await deploy(vm, artifacts.MockERC20, ["USD Coin", "USDC", 6]);
     const ms = await deploy(vm, artifacts.MockMarginSummary, []);
     const reader = await deploy(vm, artifacts.HyperCoreReader, [a(ms.address), 0]);
-    const vault = await deploy(vm, artifacts.SandickVault, [
-      a(usdc.address), a(manager), a(owner), a(reader.address),
+    const vault = await deploy(vm, artifacts.BasketVault, [
+      a(usdc.address), "SANDICK Vault", "sSANDICK", a(manager), a(owner), a(reader.address),
       a(alice) /*dummy usdc system addr*/, 1, 1, 3,
+      a(owner) /*protocolAdmin*/, a(owner) /*protocolTreasury*/, 0 /*protocolFeeBps*/,
     ]);
     await usdc.send(deployer, "mint", [a(alice), 1_000_000n * USDC]);
     await usdc.send(alice, "approve", [a(vault.address), 1n << 255n]);
@@ -344,7 +345,7 @@ async function main() {
   await test("fee defaults are set at deployment", async () => {
     const { usdc } = await fixture();
     const core = await deploy(usdc.vm, artifacts.MockCore, [a(usdc.address)]);
-    const v = await deploy(usdc.vm, artifacts.MockSandickVault, [
+    const v = await deploy(usdc.vm, artifacts.MockBasketVault, [
       a(usdc.address), a(manager), a(owner), a(core.address),
     ]);
     assert.equal(await v.call("managementFeeBps"), 200n);
@@ -414,8 +415,123 @@ async function main() {
     assert.ok(bobVal > 1000n * USDC, `bob should gain the exit fee, got ${bobVal}`);
   });
 
+  // --- Platform fee (the protocol's cut of every vault) ---
+
+  await test("platform fee streams to the protocol treasury", async () => {
+    const { vault } = await fixture();
+    await vault.send(owner, "setFeeConfig", [a(owner), 0, 0, 0]); // operator fees off
+    await vault.send(owner, "setProtocolFeeConfig", [a(bob), 100]); // 1%/yr platform fee -> bob
+    await vault.send(alice, "deposit", [1000n * USDC, a(alice)]);
+
+    warp(vault.vm, YEAR);
+    await vault.send(owner, "accrueFees", []);
+
+    // ~1% of the $1000 NAV is now owned by the protocol treasury (bob).
+    const treasury = await shareValue(vault, bob);
+    assert.ok(treasury >= 99n * USDC / 10n && treasury <= 101n * USDC / 10n, `platform fee ${treasury}`);
+    const aliceVal = await shareValue(vault, alice);
+    assert.ok(aliceVal >= 989n * USDC && aliceVal <= 991n * USDC, `alice ${aliceVal}`);
+  });
+
+  await test("operator and platform fees stack (separate recipients)", async () => {
+    const { vault } = await fixture();
+    await vault.send(owner, "setFeeConfig", [a(alice), 200, 0, 0]); // 2% operator mgmt -> alice (operator treasury)
+    await vault.send(owner, "setProtocolFeeConfig", [a(bob), 100]); // 1% platform -> bob
+    // deposit from a fresh holder so the operator-treasury (alice) shares are isolated
+    await vault.send(bob, "deposit", [1000n * USDC, a(bob)]);
+    const start = await shareValue(vault, alice);
+
+    warp(vault.vm, YEAR);
+    await vault.send(owner, "accrueFees", []);
+
+    const operatorGain = (await shareValue(vault, alice)) - start;
+    assert.ok(operatorGain >= 198n * USDC / 10n && operatorGain <= 202n * USDC / 10n, `operator ${operatorGain}`);
+  });
+
+  await test("platform fee config is protocol-admin-only and capped", async () => {
+    const { vault } = await fixture(); // mock: protocolAdmin == owner
+    await assert.rejects(() => vault.send(alice, "setProtocolFeeConfig", [a(bob), 50])); // not admin
+    await assert.rejects(() => vault.send(owner, "setProtocolFeeConfig", [a(bob), 300])); // > 2% cap
+    const ZERO = "0x" + "00".repeat(20);
+    await assert.rejects(() => vault.send(owner, "setProtocolFeeConfig", [ZERO, 50])); // treasury 0 w/ fee
+    await vault.send(owner, "setProtocolFeeConfig", [a(bob), 200]); // exactly the cap is ok
+    assert.equal(await vault.call("protocolFeeBps"), 200n);
+  });
+
+  // --- VaultFactory (the platform) ---
+
+  async function factoryFixture() {
+    const vm = await makeVM();
+    const usdc = await deploy(vm, artifacts.MockERC20, ["USD Coin", "USDC", 6]);
+    const ms = await deploy(vm, artifacts.MockMarginSummary, []);
+    const reader = await deploy(vm, artifacts.HyperCoreReader, [a(ms.address), 0]);
+    // platform owner = owner, protocol treasury = bob, platform fee = 1%/yr
+    const factory = await deploy(vm, artifacts.VaultFactory, [a(owner), a(bob), 100]);
+    const core = [a(reader.address), a(alice) /*dummy usdc system*/, 1, 1, 3];
+    // alice (a third-party operator) deploys her vault through the platform
+    const vaultAddr = await factory.send(alice, "createVault", [
+      a(usdc.address), "SANDICK Vault", "sSANDICK", a(manager), core,
+    ]);
+    const vault = at(vm, artifacts.BasketVault.abi, vaultAddr);
+    return { vm, usdc, ms, reader, factory, vault, vaultAddr, core };
+  }
+
+  await test("factory creates a vault, records it, and wires the platform fee", async () => {
+    const { factory, vault, vaultAddr } = await factoryFixture();
+    assert.equal(await factory.call("vaultCount"), 1n);
+    assert.equal(await factory.call("isVault", [vaultAddr]), true);
+    // creator is the operator/owner; platform keeps protocol-fee governance
+    assert.equal(a(await vault.call("owner")), a(alice));
+    assert.equal(a(await vault.call("manager")), a(manager));
+    assert.equal(a(await vault.call("protocolAdmin")).toLowerCase(), a(factory.address).toLowerCase());
+    assert.equal(a(await vault.call("protocolTreasury")), a(bob));
+    assert.equal(await vault.call("protocolFeeBps"), 100n);
+    const list = await vault.call("symbol");
+    assert.equal(list, "sSANDICK");
+  });
+
+  await test("operator cannot touch the platform fee; the platform can", async () => {
+    const { factory, vault, vaultAddr } = await factoryFixture();
+    // alice owns the vault but is NOT the protocol admin -> cannot change the fee
+    await assert.rejects(() => vault.send(alice, "setProtocolFeeConfig", [a(alice), 0]));
+    // a random platform-owner impostor cannot drive the factory either
+    await assert.rejects(() => factory.send(alice, "setVaultProtocolFee", [vaultAddr, a(bob), 50]));
+    // the platform owner can, via the factory (which is the vault's protocolAdmin)
+    await factory.send(owner, "setVaultProtocolFee", [vaultAddr, a(bob), 50]);
+    assert.equal(await vault.call("protocolFeeBps"), 50n);
+  });
+
+  await test("factory tracks multiple vaults and enforces the fee cap", async () => {
+    const { factory, core, usdc } = await factoryFixture();
+    await factory.send(bob, "createVault", [
+      a(usdc.address), "Second Vault", "sTWO", a(manager), core,
+    ]);
+    assert.equal(await factory.call("vaultCount"), 2n);
+    const all = await factory.call("allVaults");
+    assert.equal(all.length, 2);
+    // default-fee setter is platform-owner-only and capped at 2%
+    await assert.rejects(() => factory.send(alice, "setDefaultProtocolFee", [a(bob), 100]));
+    await assert.rejects(() => factory.send(owner, "setDefaultProtocolFee", [a(bob), 300]));
+    await factory.send(owner, "setDefaultProtocolFee", [a(bob), 150]);
+    assert.equal(await factory.call("protocolFeeBps"), 150n);
+  });
+
+  await test("a factory-created vault charges the platform fee end-to-end", async () => {
+    const { usdc, vault } = await factoryFixture();
+    await usdc.send(deployer, "mint", [a(alice), 1_000_000n * USDC]);
+    await usdc.send(alice, "approve", [a(vault.address), 1n << 255n]);
+    // operator runs fee-free; only the 1% platform fee should accrue (to bob)
+    await vault.send(alice, "setFeeConfig", [a(alice), 0, 0, 0]);
+    await vault.send(alice, "deposit", [1000n * USDC, a(alice)]);
+
+    warp(vault.vm, YEAR);
+    await vault.send(alice, "accrueFees", []);
+    const platform = await shareValue(vault, bob);
+    assert.ok(platform >= 99n * USDC / 10n && platform <= 101n * USDC / 10n, `platform fee ${platform}`);
+  });
+
   await test("manager has no path to extract funds", async () => {
-    const names = artifacts.MockSandickVault.abi
+    const names = artifacts.MockBasketVault.abi
       .filter((x) => x.type === "function")
       .map((x) => x.name);
     assert.ok(!names.includes("rescue") && !names.includes("sweep"));

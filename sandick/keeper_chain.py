@@ -2,7 +2,7 @@
 
 ``keeper_bot.KeeperBot`` drives the vault through the ``KeeperClient`` seam;
 this module provides the concrete implementation against a deployed
-``SandickVault`` on HyperEVM:
+``BasketVault`` on HyperEVM:
 
 * **Reads** (idle USDC, queued-redemption value, NAV) come from the vault's own
   view functions. ``core_available`` reads the HyperCore ``accountMarginSummary``
@@ -147,11 +147,11 @@ class HyperliquidMarketData:
 # ── The adapter ─────────────────────────────────────────────────────────────
 @dataclass
 class Web3KeeperClient:
-    """Concrete :class:`keeper_bot.KeeperClient` over a deployed SandickVault.
+    """Concrete :class:`keeper_bot.KeeperClient` over a deployed BasketVault.
 
     Args:
         w3: a connected web3 client (or a compatible fake in tests).
-        vault_address: the deployed SandickVault address.
+        vault_address: the deployed BasketVault address.
         usdc_address: the vault's underlying USDC token.
         account: signer for writes (an eth-account ``LocalAccount`` or compatible);
             ``None`` makes the client read-only and writes raise.

@@ -17,5 +17,6 @@
   "usdcCoreTokenIndex": 0,
   "usdcSystemAddress": "0x2000000000000000000000000000000000000000",
   "coreScale": 1,
-  "tif": 3
+  "tif": 3,
+  "protocolFeeBps": 100
 }

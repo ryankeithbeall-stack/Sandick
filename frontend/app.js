@@ -36,7 +36,7 @@ const EQUAL_WEIGHT = 1 / N;
 
 // ── chain mode (config-gated) ───────────────────────────────
 // When window.SANDICK_CONFIG.chain.enabled is true we wire the depositor and
-// admin surfaces to a deployed SandickVault via chain.js; otherwise the app
+// admin surfaces to a deployed BasketVault via chain.js; otherwise the app
 // runs the self-contained demo state machine below. See frontend/config.js.
 const CHAIN_CFG = (typeof window !== 'undefined' && window.SANDICK_CONFIG && window.SANDICK_CONFIG.chain) || null;
 const LIVE = !!(CHAIN_CFG && CHAIN_CFG.enabled);

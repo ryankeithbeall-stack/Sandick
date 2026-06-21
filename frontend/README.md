@@ -19,7 +19,7 @@ python -m http.server 8000 --directory frontend
 | `styles.css`      | Dark DeFi theme; accent colors echo the SANDICK letter palette.   |
 | `app.js`          | UI logic; demo state machine by default, live chain calls when enabled. |
 | `config.js`       | Runtime config; `chain.enabled` gates live mode (off by default). |
-| `chain.js`        | Optional viem layer over the deployed `SandickVault` (ES module). |
+| `chain.js`        | Optional viem layer over the deployed `BasketVault` (ES module). |
 | `assets/sandick.png` | The SANDICK basket image, featured in the hero.                |
 
 ## Sections
@@ -49,7 +49,7 @@ actions run on a **local demo state machine** — no chain calls. Data (`BASKET`
 ### Going live
 
 `app.js` is wired to the chain through `chain.js` (a `viem` layer over the
-deployed `SandickVault`). Flip `chain.enabled = true` in `config.js` and the
+deployed `BasketVault`). Flip `chain.enabled = true` in `config.js` and the
 same buttons hit the contract instead of the demo state:
 
 ```js
@@ -58,7 +58,7 @@ window.SANDICK_CONFIG = { chain: {
   enabled: true,
   chainId: 998,
   rpcUrl: 'https://rpc.hyperliquid-testnet.xyz/evm',
-  vaultAddress: '0x…',   // deployed SandickVault
+  vaultAddress: '0x…',   // deployed BasketVault
   usdcAddress: '0x…',    // vault underlying (USDC)
 }};
 ```
