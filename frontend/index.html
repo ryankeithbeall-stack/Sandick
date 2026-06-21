@@ -3,8 +3,9 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>SANDICK · HIP-3 Equal-Weighted Basket Vault</title>
-  <meta name="description" content="An admin-managed, equal-weighted basket vault on Hyperliquid HIP-3 perp markets." />
+  <!-- NOTE: "Vault Platform" is a placeholder brand — final product name TBD. -->
+  <title>Vault Platform · Deploy HIP-3 basket vaults on Hyperliquid</title>
+  <meta name="description" content="A vault deployment platform on Hyperliquid HIP-3 perp markets. Launch your own equal-weighted basket vault; the platform takes a fee on every vault. SANDICK is the flagship." />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
@@ -21,14 +22,14 @@
     <div class="nav__inner">
       <a class="brand" href="#top">
         <span class="brand__mark">◆</span>
-        <span class="brand__name">SANDICK</span>
-        <span class="brand__tag">vault</span>
+        <span class="brand__name">Vault Platform</span>
+        <span class="brand__tag">beta</span>
       </a>
       <nav class="nav__links">
-        <a href="#basket">Basket</a>
+        <a href="#vaults">Vaults</a>
+        <a href="#flagship">Flagship</a>
         <a href="#calculator">Calculator</a>
-        <a href="#vault">Vault</a>
-        <a href="#admin">Admin</a>
+        <a href="#launch">Launch</a>
       </nav>
       <button class="btn btn--ghost" id="connectBtn">
         <span class="dot"></span><span id="connectLabel">Connect wallet</span>
@@ -43,33 +44,44 @@
         <div class="pill">
           <span class="pill__dot"></span> Hyperliquid · HIP-3 · testnet
         </div>
-        <h1>The basket that spells<br /><span class="grad-text">your conviction.</span></h1>
+        <h1>Launch a basket vault.<br /><span class="grad-text">We power every one.</span></h1>
         <p class="lede">
-          SANDICK is an admin-managed, <strong>equal-weighted</strong> vault of seven
-          AI / data-center / storage names — traded as builder-deployed perps on a
-          single HIP-3 dex. Deposit USDC, get transferable ERC-4626 shares, ride the
-          basket pro-rata. The manager can trade, but can <strong>never</strong> withdraw your funds.
+          A <strong>vault deployment platform</strong> on Hyperliquid HIP-3 perps. Anyone
+          can spin up an equal-weighted basket vault through the on-chain factory —
+          depositors get transferable ERC-4626 shares, managers can trade but
+          <strong>never</strong> withdraw funds, and the platform earns a fee on
+          <strong>every vault</strong> it hosts. <strong>SANDICK</strong> is our flagship —
+          the number-one performer.
         </p>
         <div class="hero__cta">
-          <a href="#calculator" class="btn btn--primary">Open the calculator</a>
-          <a href="#vault" class="btn btn--ghost">Deposit USDC</a>
+          <a href="#vaults" class="btn btn--primary">Explore vaults</a>
+          <a href="#launch" class="btn btn--ghost">Launch a vault</a>
         </div>
-        <dl class="hero__stats">
-          <div><dt>Assets</dt><dd>7</dd></div>
-          <div><dt>Weight / leg</dt><dd>14.29%</dd></div>
-          <div><dt>Vault standard</dt><dd>ERC-4626</dd></div>
-          <div><dt>Collateral</dt><dd>USDC</dd></div>
-        </dl>
+        <dl class="hero__stats" id="platformStats"><!-- injected --></dl>
       </div>
 
       <figure class="hero__art">
         <img src="assets/sandick.png" alt="The SANDICK basket: SanDisk, Arm Holdings, Nebius, Dell, Intel, CoreWeave and SK Hynix spelling S A N D I C K." />
-        <figcaption>Seven names. One word. Equal weight.</figcaption>
+        <figcaption>Flagship vault — <strong>SANDICK</strong>: seven names, one word, equal weight.</figcaption>
       </figure>
     </section>
 
-    <!-- ───────────────────────── Basket ───────────────────────── -->
-    <section id="basket" class="section">
+    <!-- ───────────────────────── Vault marketplace ───────────────────────── -->
+    <section id="vaults" class="section">
+      <div class="section__head">
+        <h2>Vaults on the platform</h2>
+        <p>Every vault is an ERC-4626 contract deployed through the factory. The platform takes a <strong id="platformFeeLabel">1%</strong>/yr fee on each — the operator sets their own fees on top.</p>
+      </div>
+      <div class="vaults-grid" id="vaultsGrid"><!-- injected --></div>
+    </section>
+
+    <!-- ───────────────────────── Flagship (SANDICK) ───────────────────────── -->
+    <section id="flagship" class="section">
+      <div class="flagship-banner">
+        <span class="badge badge--flagship">★ Flagship vault</span>
+        <span class="flagship-banner__name">SANDICK</span>
+        <span class="muted">— the #1 performer on the platform. The deep-dive below (basket, calculator, deposits, manager tools) is for this vault.</span>
+      </div>
       <div class="section__head">
         <h2>The basket</h2>
         <p>Each name receives an equal <strong>1 / 7 ≈ 14.29%</strong> share of gross notional.</p>
@@ -187,7 +199,7 @@
                 <button class="btn btn--ghost btn--block" id="redeemAsyncBtn" disabled>Request redeem (async queue)</button>
               </div>
             </div>
-            <p class="muted" id="feeNote">Fees: 2% / yr management · 10% performance (above high-water mark) · 0.1% exit. Charged as dilution shares to the treasury; no USDC ever leaves the vault.</p>
+            <p class="muted" id="feeNote">Operator fees: 2% / yr management · 10% performance (above high-water mark) · 0.1% exit. Platform fee: 1% / yr to the protocol treasury. All charged as dilution shares; no USDC ever leaves the vault.</p>
           </div>
 
           <!-- async queue -->
@@ -197,6 +209,52 @@
             <ul class="queue" id="queueList"><li class="queue__empty">No pending requests.</li></ul>
           </div>
         </div>
+      </div>
+    </section>
+
+    <!-- ───────────────────────── Launch a vault ───────────────────────── -->
+    <section id="launch" class="section">
+      <div class="section__head">
+        <h2>Launch your own vault</h2>
+        <p>Deploy a fresh ERC-4626 basket vault through the on-chain <code>VaultFactory</code>. You become the operator; the platform fee is wired in automatically.</p>
+      </div>
+
+      <div class="launch">
+        <ol class="launch__steps">
+          <li>
+            <span class="launch__num">1</span>
+            <div>
+              <h4>Pick your basket</h4>
+              <p>Select the HIP-3 coins and equal-weight them — or bring custom weights. The flagship SANDICK is just one configuration.</p>
+            </div>
+          </li>
+          <li>
+            <span class="launch__num">2</span>
+            <div>
+              <h4>Call <code>createVault</code></h4>
+              <p>The factory deploys your <code>BasketVault</code>, registers it, and stamps the platform fee + treasury. You’re set as <code>owner</code> (operator).</p>
+            </div>
+          </li>
+          <li>
+            <span class="launch__num">3</span>
+            <div>
+              <h4>Set fees &amp; go live</h4>
+              <p>Configure your own mgmt / performance / exit fees, allow-list assets, and open deposits. The platform’s cut is governed separately and can’t be removed.</p>
+            </div>
+          </li>
+        </ol>
+
+        <aside class="launch__cta card">
+          <h3>Deploy a vault</h3>
+          <dl class="launch__facts">
+            <div><dt>Standard</dt><dd>ERC-4626</dd></div>
+            <div><dt>Platform fee</dt><dd id="launchFee">1% / yr</dd></div>
+            <div><dt>Operator caps</dt><dd>5% mgmt · 30% perf · 1% exit</dd></div>
+            <div><dt>Custody</dt><dd>Trustless — manager can’t withdraw</dd></div>
+          </dl>
+          <button class="btn btn--primary btn--block" id="launchBtn">Launch a vault</button>
+          <p class="muted">Opens the factory flow. Testnet only — unaudited.</p>
+        </aside>
       </div>
     </section>
 
@@ -240,8 +298,8 @@
 
   <footer class="footer">
     <div class="footer__inner">
-      <span class="brand"><span class="brand__mark">◆</span> SANDICK</span>
-      <span class="muted">ERC-4626 · HIP-3 · Unaudited — testnet only. Not investment advice.</span>
+      <span class="brand"><span class="brand__mark">◆</span> Vault Platform</span>
+      <span class="muted">Vault deployment platform · ERC-4626 · HIP-3 · SANDICK flagship · Unaudited — testnet only. Not investment advice.</span>
     </div>
   </footer>
 

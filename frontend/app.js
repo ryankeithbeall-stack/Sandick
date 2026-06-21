@@ -34,6 +34,37 @@ const EXAMPLE_PRICES = {
 const N = BASKET.assets.length;
 const EQUAL_WEIGHT = 1 / N;
 
+// ── platform / marketplace data ─────────────────────────────
+// PLATFORM mirrors the on-chain VaultFactory defaults; VAULTS is the demo
+// directory of vaults hosted on the platform. SANDICK is the flagship / #1
+// performer (its detail view is the rest of this page). The non-flagship vaults
+// are illustrative demo entries.
+const PLATFORM = {
+  name: 'Vault Platform',          // placeholder brand — final product name TBD
+  protocolFeeBps: 100,             // VaultFactory default platform fee (1%/yr of NAV)
+};
+
+const VAULTS = [
+  { id: 'sandick',  name: 'SANDICK',     symbol: 'sSANDICK', flagship: true,
+    strategy: 'Equal-weighted AI / data-center / storage basket', assetsN: 7,
+    manager: '0xA1c…9bE4', tvl: 248_500,   ret30: 0.183, status: 'live' },
+  { id: 'bluechip', name: 'BLUECHIP-8',  symbol: 'sBC8',
+    strategy: 'Eight large-cap majors, equal weight',            assetsN: 8,
+    manager: '0x77f…2aD1', tvl: 1_120_000, ret30: 0.041, status: 'live' },
+  { id: 'meme7',    name: 'MEME-7',      symbol: 'sMEME7',
+    strategy: 'Seven liquid meme perps, equal weight',           assetsN: 7,
+    manager: '0x12c…aa90', tvl: 158_900,   ret30: 0.151, status: 'new'  },
+  { id: 'defi5',    name: 'DEFI-5',      symbol: 'sDEFI5',
+    strategy: 'Top-5 DeFi governance tokens',                    assetsN: 5,
+    manager: '0x3bE…04cc', tvl: 486_000,   ret30: 0.112, status: 'live' },
+  { id: 'l1maj',    name: 'L1-MAJORS',   symbol: 'sL1M',
+    strategy: 'Layer-1 majors, market-cap tilt',                 assetsN: 6,
+    manager: '0x9dA…7f12', tvl: 702_300,   ret30: -0.024, status: 'live' },
+  { id: 'carry',    name: 'STABLE-CARRY', symbol: 'sCARRY',
+    strategy: 'Funding-rate carry across blue-chip perps',       assetsN: 4,
+    manager: '0x4f1…b7e0', tvl: 940_000,   ret30: 0.061, status: 'live' },
+];
+
 // ── chain mode (config-gated) ───────────────────────────────
 // When window.SANDICK_CONFIG.chain.enabled is true we wire the depositor and
 // admin surfaces to a deployed BasketVault via chain.js; otherwise the app
@@ -129,6 +160,90 @@ function renderBasket() {
         </div>
       </article>`;
   }).join('');
+}
+
+// ═══════════════════════════════════════════════════════════
+//  Platform — hero stats + vault marketplace
+// ═══════════════════════════════════════════════════════════
+const platformFeePct = () => PLATFORM.protocolFeeBps / 100; // bps -> %
+
+function renderPlatformStats() {
+  const tvl = VAULTS.reduce((s, v) => s + v.tvl, 0);
+  const stats = $('#platformStats');
+  if (stats) {
+    stats.innerHTML = `
+      <div><dt>Vaults</dt><dd>${VAULTS.length}</dd></div>
+      <div><dt>Total TVL</dt><dd>${fmtUsd(tvl, 0)}</dd></div>
+      <div><dt>Platform fee</dt><dd>${platformFeePct()}% / yr</dd></div>
+      <div><dt>Vault standard</dt><dd>ERC-4626</dd></div>`;
+  }
+  // fee labels sprinkled around the page
+  const feeLabel = $('#platformFeeLabel');
+  if (feeLabel) feeLabel.textContent = `${platformFeePct()}%`;
+  const launchFee = $('#launchFee');
+  if (launchFee) launchFee.textContent = `${platformFeePct()}% / yr`;
+}
+
+function renderVaults() {
+  const grid = $('#vaultsGrid');
+  if (!grid) return;
+  // Flagship first, then by 30-day return (so the #1 performer leads).
+  const ordered = [...VAULTS].sort((a, b) =>
+    (b.flagship ? 1 : 0) - (a.flagship ? 1 : 0) || b.ret30 - a.ret30);
+
+  grid.innerHTML = ordered.map((v, i) => {
+    const up = v.ret30 >= 0;
+    const perfTop = !v.flagship && i === 1 && up; // best non-flagship
+    return `
+      <article class="vcard${v.flagship ? ' vcard--flagship' : ''}" data-vault="${v.id}">
+        <header class="vcard__head">
+          <div class="vcard__id">
+            <span class="vcard__name">${v.name}</span>
+            <span class="vcard__sym">${v.symbol}</span>
+          </div>
+          ${v.flagship
+            ? `<span class="badge badge--flagship">★ Flagship · #1</span>`
+            : v.status === 'new'
+              ? `<span class="badge badge--new">New</span>`
+              : perfTop ? `<span class="badge">Top return</span>` : ``}
+        </header>
+        <p class="vcard__strategy">${v.strategy}</p>
+        <dl class="vcard__metrics">
+          <div><dt>TVL</dt><dd>${fmtUsd(v.tvl, 0)}</dd></div>
+          <div><dt>30d return</dt><dd class="${up ? 'up' : 'down'}">${up ? '+' : ''}${(v.ret30 * 100).toFixed(1)}%</dd></div>
+          <div><dt>Assets</dt><dd>${v.assetsN}</dd></div>
+        </dl>
+        <footer class="vcard__foot">
+          <span class="vcard__mgr">Mgr ${v.manager}</span>
+          <span class="vcard__fee">Platform fee ${platformFeePct()}%</span>
+        </footer>
+        <button class="btn ${v.flagship ? 'btn--primary' : 'btn--ghost'} btn--block" data-open="${v.id}">
+          ${v.flagship ? 'View flagship vault' : 'View vault'}
+        </button>
+      </article>`;
+  }).join('');
+
+  $$('#vaultsGrid [data-open]').forEach((b) =>
+    b.addEventListener('click', (e) => {
+      e.stopPropagation();
+      openVault(b.dataset.open);
+    }));
+}
+
+function openVault(id) {
+  const v = VAULTS.find((x) => x.id === id);
+  if (!v) return;
+  if (v.flagship) {
+    $('#flagship').scrollIntoView({ behavior: 'smooth' });
+  } else {
+    toast(`${v.name} — full vault detail is coming soon (flagship SANDICK is live below)`);
+  }
+}
+
+function wireLaunch() {
+  const btn = $('#launchBtn');
+  if (btn) btn.addEventListener('click', () =>
+    toast('Factory flow: deploy a BasketVault via createVault — testnet only (demo)'));
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -613,15 +728,18 @@ const Live = {
 //  Init
 // ═══════════════════════════════════════════════════════════
 function init() {
+  renderPlatformStats();
+  renderVaults();
   renderBasket();
   renderPriceInputs();
   wireCalc();
   wireConnect();
   wireVault();
   wireAdmin();
+  wireLaunch();
   runCalc();
   if (LIVE) {
-    document.title = 'SANDICK — live (' + (CHAIN_CFG.explorer ? 'testnet' : 'chain ' + CHAIN_CFG.chainId) + ')';
+    document.title = 'Vault Platform — live (' + (CHAIN_CFG.explorer ? 'testnet' : 'chain ' + CHAIN_CFG.chainId) + ')';
     Live.init();
   } else {
     refreshVault();

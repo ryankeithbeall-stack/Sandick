@@ -12,7 +12,8 @@ window.SANDICK_CONFIG = {
     enabled: false,
     chainId: 998,                  // HyperEVM testnet
     rpcUrl: '',                    // e.g. https://rpc.hyperliquid-testnet.xyz/evm
-    vaultAddress: '',              // deployed BasketVault
+    factoryAddress: '',            // deployed VaultFactory (the platform)
+    vaultAddress: '',              // flagship BasketVault (SANDICK) for the detail view
     usdcAddress: '',               // vault underlying (USDC, 6dp)
     explorer: '',                  // optional block-explorer base url
   },

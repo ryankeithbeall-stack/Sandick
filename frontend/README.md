@@ -1,7 +1,12 @@
-# SANDICK — front end
+# Vault Platform — front end
 
-A sleek, zero-build front end for the SANDICK HIP-3 equal-weighted basket vault.
-Pure HTML/CSS/JS — no bundler, no install. Open it or serve the folder.
+A sleek, zero-build front end for the vault deployment platform: a marketplace of
+HIP-3 basket vaults, a "launch a vault" flow, and a full depositor/manager
+deep-dive for the flagship **SANDICK** vault. Pure HTML/CSS/JS — no bundler, no
+install. Open it or serve the folder.
+
+> **Brand:** "Vault Platform" is a placeholder wordmark — the final product name
+> is TBD. SANDICK is the flagship vault, not the platform name.
 
 ```bash
 # from the repo root
@@ -15,7 +20,7 @@ python -m http.server 8000 --directory frontend
 
 | File              | Purpose                                                            |
 |-------------------|-------------------------------------------------------------------|
-| `index.html`      | Page structure: hero, basket, calculator, depositor app, admin.   |
+| `index.html`      | Page structure: hero, vault marketplace, flagship (basket/calculator/depositor/admin), launch. |
 | `styles.css`      | Dark DeFi theme; accent colors echo the SANDICK letter palette.   |
 | `app.js`          | UI logic; demo state machine by default, live chain calls when enabled. |
 | `config.js`       | Runtime config; `chain.enabled` gates live mode (off by default). |
@@ -24,9 +29,15 @@ python -m http.server 8000 --directory frontend
 
 ## Sections
 
-- **Hero** — the SANDICK image plus the one-line pitch and headline vault stats.
-- **Basket** — the seven names (SanDisk, Arm Holdings, Nebius, Dell, Intel,
-  CoreWeave, SK Hynix) whose logos spell **S A N D I C K**, each at 14.29%.
+- **Hero** — the platform pitch ("launch a basket vault, we power every one")
+  plus platform-level stats (vault count, total TVL, platform fee).
+- **Vaults** — the marketplace: a directory of vaults hosted on the platform,
+  each card showing TVL, 30-day return, asset count, manager and the platform
+  fee. SANDICK is pinned as the flagship / #1 performer; the others are demo
+  entries. Data lives in the `VAULTS` array in `app.js`.
+- **Flagship (SANDICK)** — the deep-dive for the flagship vault: the seven names
+  (SanDisk, Arm Holdings, Nebius, Dell, Intel, CoreWeave, SK Hynix) whose logos
+  spell **S A N D I C K**, each at 14.29%.
 - **Calculator** — a live equal-weight planner. `allocate()` in `app.js` is a
   faithful port of `sandick.allocator.build_plan` (equal-weight branch):
   `gross_notional = capital × leverage`, sizes floored to each asset's
@@ -36,8 +47,12 @@ python -m http.server 8000 --directory frontend
 - **Depositor app** — deposit USDC → SAND-LP shares at NAV/share, synchronous
   redeem, and the async redemption queue (`requestRedeem → pending → claimable
   → claim`) that models CoreWriter's delayed settlement.
-- **Admin panel** — manager-gated controls (discover / build / submit basket /
-  rebalance / bridge) with an action log.
+- **Launch a vault** — a three-step explainer for deploying a new vault through
+  the on-chain `VaultFactory` (pick basket → `createVault` → set fees & go live),
+  with a facts card (standard, platform fee, operator caps, custody). The button
+  is a demo stub today; wiring it to `factory.createVault` is the next step.
+- **Admin panel** — manager-gated controls for the flagship (discover / build /
+  submit basket / rebalance / bridge) with an action log.
 
 ## Demo vs. live
 
