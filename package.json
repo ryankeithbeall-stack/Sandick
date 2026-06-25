@@ -7,6 +7,7 @@
     "compile": "node scripts/compile_contracts.js",
     "test:contracts": "node contracts/test/vault.test.js",
     "coverage:contracts": "node scripts/coverage_run.js",
+    "slither": "bash scripts/static_analysis.sh",
     "deploy": "node scripts/deploy.js"
   },
   "dependencies": {

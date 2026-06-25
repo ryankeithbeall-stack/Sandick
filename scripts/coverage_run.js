@@ -28,6 +28,21 @@ async function main() {
     );
     process.exit(1);
   }
+
+  // Per-file floor: a high TOTAL can hide a barely-tested production file (the
+  // riskiest code, e.g. the CoreWriter encoding path). `files` already contains
+  // only production sources, so enforce a minimum on each.
+  const perFileMin = process.env.COVERAGE_MIN_PER_FILE
+    ? parseFloat(process.env.COVERAGE_MIN_PER_FILE)
+    : 80;
+  const offenders = files.filter((f) => f.total > 0 && (100 * f.hit) / f.total < perFileMin);
+  if (offenders.length) {
+    console.error(`\nPer-file coverage below the required ${perFileMin}%:`);
+    for (const f of offenders) {
+      console.error(`  ${f.path}: ${((100 * f.hit) / f.total).toFixed(1)}% (${f.hit}/${f.total})`);
+    }
+    process.exit(1);
+  }
 }
 
 main().catch((e) => {

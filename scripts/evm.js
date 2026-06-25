@@ -116,6 +116,16 @@ function at(vm, abi, address) {
   return new Contract(vm, a, iface);
 }
 
+// Place runtime bytecode at a fixed address (e.g. a precompile/system contract
+// like CoreWriter at 0x33..33), so calls into it execute that code. Pass an
+// artifact's `deployedBytecode`. Uses the @ethereumjs/statemanager v10 `putCode`.
+async function etch(vm, addressHex, deployedBytecode) {
+  const address = createAddressFromString(addressHex.toLowerCase());
+  await vm.stateManager.putAccount(address, new Account(0n, 0n));
+  await vm.stateManager.putCode(address, hexToBytes(deployedBytecode));
+  return address;
+}
+
 // Advance the VM clock by `seconds` (for time-dependent logic like timeouts).
 function warp(vm, seconds) {
   vm.__timestamp = (vm.__timestamp ?? 0n) + BigInt(seconds);
@@ -126,4 +136,4 @@ function setTimestamp(vm, ts) {
   vm.__timestamp = BigInt(ts);
 }
 
-module.exports = { makeVM, deploy, at, ACCOUNTS, warp, setTimestamp };
+module.exports = { makeVM, deploy, at, etch, ACCOUNTS, warp, setTimestamp };

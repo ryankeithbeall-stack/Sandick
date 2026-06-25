@@ -2,14 +2,32 @@
 // Runs the actual compiled bytecode on @ethereumjs/vm — exercises shares, NAV,
 // withdrawal caps, and the trade-only manager restrictions.
 const assert = require("assert");
+const { ethers } = require("ethers");
 const { compile } = require("../../scripts/compile");
-const { makeVM, deploy, at, ACCOUNTS, warp } = require("../../scripts/evm");
+const { makeVM, deploy, at, etch, ACCOUNTS, warp } = require("../../scripts/evm");
 
 const SEVEN_DAYS = 7n * 24n * 60n * 60n;
 
 const USDC = 10n ** 6n;
 const { deployer, manager, alice, bob, owner } = ACCOUNTS;
 const a = (x) => x.toString(); // address hex
+
+// CoreWriter system contract address (HyperCoreActions.CORE_WRITER). NOTE: this
+// is byte-identical to ACCOUNTS.alice (0x33..33), so the CoreWriter fixture must
+// NOT use alice as an actor or system address — it uses bob + a distinct 0x66.. .
+const CORE_WRITER = "0x" + "33".repeat(20);
+const USDC_SYS = "0x" + "66".repeat(20); // dummy USDC system address (bridge sink)
+const _abi = ethers.AbiCoder.defaultAbiCoder();
+
+// Split a CoreWriter payload (version | uint24 actionId | abi.encode(args)).
+function decodeAction(dataHex) {
+  const hex = dataHex.startsWith("0x") ? dataHex.slice(2) : dataHex;
+  return {
+    version: parseInt(hex.slice(0, 2), 16),
+    actionId: parseInt(hex.slice(2, 8), 16),
+    args: "0x" + hex.slice(8),
+  };
+}
 
 let passed = 0;
 async function test(name, fn) {
@@ -670,6 +688,86 @@ async function main() {
     );
     await vault.send(bob, "submitBasket", [[[7, false, 200n, 100n, true]]]);
     assert.equal(await vault.call("submittedCount"), 1n);
+  });
+
+  // ---- Production CoreWriter path: etch a recorder at 0x33..33 and assert the
+  //      real HyperCoreActions wire bytes (covers BasketVault + HyperCoreActions
+  //      which MockBasketVault otherwise bypasses). ----
+
+  async function coreWriterFixture() {
+    const vm = await makeVM();
+    const usdc = await deploy(vm, artifacts.MockERC20, ["USD Coin", "USDC", 6]);
+    const ms = await deploy(vm, artifacts.MockMarginSummary, []);
+    const reader = await deploy(vm, artifacts.HyperCoreReader, [a(ms.address), 0]);
+    const vault = await deploy(vm, artifacts.BasketVault, [[
+      a(usdc.address), "SANDICK Vault", "sSANDICK", a(manager), a(owner), a(reader.address),
+      USDC_SYS, 1 /*usdcCoreTokenIndex*/, 1 /*coreScale*/, 3 /*tif IOC*/,
+      a(owner), a(owner), 0,
+    ]]);
+    // Recorder lives at the CoreWriter precompile address.
+    await etch(vm, CORE_WRITER, artifacts.MockCoreWriter.deployedBytecode);
+    const cw = at(vm, artifacts.MockCoreWriter.abi, CORE_WRITER);
+    // bob (NOT alice — alice == CoreWriter) funds the vault.
+    await usdc.send(deployer, "mint", [a(bob), 1_000_000n * USDC]);
+    await usdc.send(bob, "approve", [a(vault.address), 1n << 255n]);
+    await vault.send(bob, "deposit", [1000n * USDC, a(bob)]);
+    return { vm, usdc, vault, cw };
+  }
+
+  await test("CoreWriter: bridgeToCore emits usdClassTransfer(spot->perp)", async () => {
+    const { vault, cw } = await coreWriterFixture();
+    await vault.send(manager, "bridgeToCore", [500n * USDC]);
+    assert.equal(await cw.call("callCount"), 1n);
+    const { version, actionId, args } = decodeAction(await cw.call("lastData"));
+    assert.equal(version, 1);
+    assert.equal(actionId, 7); // USD class transfer
+    const [ntl, toPerp] = _abi.decode(["uint64", "bool"], args);
+    assert.equal(ntl, 500n * USDC); // coreScale 1
+    assert.equal(toPerp, true);
+  });
+
+  await test("CoreWriter: submitBasket emits a limit order with the configured TIF", async () => {
+    const { vault, cw } = await coreWriterFixture();
+    await vault.send(owner, "setAllowedAsset", [7, true]);
+    await vault.send(manager, "submitBasket", [[[7, true, 200n, 100n, false]]]);
+    const { actionId, args } = decodeAction(await cw.call("lastData"));
+    assert.equal(actionId, 1); // limit order
+    const d = _abi.decode(
+      ["uint32", "bool", "uint64", "uint64", "bool", "uint8", "uint128"], args
+    );
+    assert.equal(d[0], 7n); assert.equal(d[1], true);
+    assert.equal(d[2], 200n); assert.equal(d[3], 100n);
+    assert.equal(d[4], false); assert.equal(d[5], 3n); assert.equal(d[6], 0n); // tif IOC, no cloid
+  });
+
+  await test("CoreWriter: requirePostOnly forces ALO (tif=1) on submitted orders", async () => {
+    const { vault, cw } = await coreWriterFixture();
+    await vault.send(owner, "setAllowedAsset", [7, true]);
+    await vault.send(owner, "setRequirePostOnly", [true]);
+    await vault.send(manager, "submitBasket", [[[7, true, 200n, 100n, false]]]);
+    const { args } = decodeAction(await cw.call("lastData"));
+    const d = _abi.decode(
+      ["uint32", "bool", "uint64", "uint64", "bool", "uint8", "uint128"], args
+    );
+    assert.equal(d[5], 1n); // tif coerced to ALO by requirePostOnly
+  });
+
+  await test("CoreWriter: bridgeFromCore emits usdClassTransfer THEN spotSend", async () => {
+    const { vault, cw } = await coreWriterFixture();
+    await vault.send(manager, "bridgeToCore", [500n * USDC]);   // call 0
+    await vault.send(manager, "bridgeFromCore", [100n * USDC]); // calls 1,2
+    assert.equal(await cw.call("callCount"), 3n);
+    // perp -> spot
+    const t = decodeAction(await cw.call("dataAt", [1n]));
+    assert.equal(t.actionId, 7);
+    const [ntl, toPerp] = _abi.decode(["uint64", "bool"], t.args);
+    assert.equal(ntl, 100n * USDC); assert.equal(toPerp, false);
+    // spot-send to the USDC system address
+    const s = decodeAction(await cw.call("lastData"));
+    assert.equal(s.actionId, 6);
+    const [to, token, amountWei] = _abi.decode(["address", "uint64", "uint64"], s.args);
+    assert.equal(to.toLowerCase(), USDC_SYS);
+    assert.equal(token, 1n); assert.equal(amountWei, 100n * USDC);
   });
 
   console.log(`\n${passed} contract test(s) passed.`);
