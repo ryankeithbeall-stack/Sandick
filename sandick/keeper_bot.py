@@ -294,7 +294,23 @@ def run_loop(
     reports: List[KeeperReport] = []
     counter = range(max_ticks) if max_ticks is not None else itertools.count()
     for i in counter:
-        report = bot.tick()
+        try:
+            report = bot.tick()
+        except Exception as exc:
+            # A read/encode/sign failure in a single tick must not kill the loop.
+            # Turn it into an unhealthy report (non-empty blockers) so the health
+            # snapshot + exit code surface it, then carry on: transient blips
+            # self-heal next tick, a persistent fault stays loudly unhealthy.
+            msg = f"tick raised: {type(exc).__name__}: {exc}"
+            report = KeeperReport(
+                liquidity=LiquidityResult(
+                    bridged=0.0, shortfall=0.0, submitted=False, verified=False, note=msg
+                ),
+                rebalance=RebalanceResult(
+                    triggered=False, submitted=False, verified=False, note=msg
+                ),
+                blockers=(msg,),
+            )
         reports.append(report)
         if on_report is not None:
             on_report(report)

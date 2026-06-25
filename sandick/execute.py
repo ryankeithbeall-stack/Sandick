@@ -21,7 +21,7 @@ from __future__ import annotations
 import math
 import os
 from dataclasses import dataclass
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 from .allocator import AllocationPlan
 from .safety import require_tx_allowed
@@ -149,13 +149,73 @@ def _make_exchange(creds: Credentials, testnet: bool):
     )
 
 
+def _maybe_float(value: Any) -> Optional[float]:
+    """Best-effort float (the SDK returns numeric fields as strings)."""
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def interpret_order_result(res: Any) -> Dict[str, Any]:
+    """Classify a Hyperliquid order response into a fail-closed outcome.
+
+    The SDK returns either a top-level error
+    (``{"status": "err", "response": "<msg>"}``) or
+    ``{"status": "ok", "response": {"data": {"statuses": [<per-order>]}}}`` where
+    each per-order entry is one of ``{"filled": {...}}``, ``{"resting": {...}}`` or
+    ``{"error": "<msg>"}``. We place one order per call, so we read the first
+    status.
+
+    Returns a normalized dict ``{accepted, state, detail, oid, filled_sz,
+    avg_px}``. ``accepted`` is ``True`` only when the exchange did not reject the
+    order (``filled``/``resting``); anything ambiguous or erroneous is
+    ``accepted=False`` so a silent failure can never read as success.
+    """
+    unknown = {"accepted": False, "state": "unknown", "detail": "",
+               "oid": None, "filled_sz": None, "avg_px": None}
+    if not isinstance(res, dict):
+        return {**unknown, "detail": f"non-dict response: {res!r}"}
+    if res.get("status") != "ok":
+        return {**unknown, "state": "error",
+                "detail": str(res.get("response", res))}
+    statuses = (((res.get("response") or {}).get("data") or {}).get("statuses")) or []
+    if not statuses:
+        return {**unknown, "detail": "ok response carried no order statuses"}
+    st = statuses[0]
+    if not isinstance(st, dict):
+        return {**unknown, "detail": f"unexpected status entry: {st!r}"}
+    # Check error FIRST so any error key wins, keeping the classifier fail-closed
+    # even against a malformed entry that also carried filled/resting.
+    if "error" in st:
+        return {**unknown, "state": "rejected", "detail": str(st.get("error"))}
+    if "filled" in st:
+        f = st.get("filled") or {}
+        return {"accepted": True, "state": "filled", "detail": "filled",
+                "oid": f.get("oid"),
+                "filled_sz": _maybe_float(f.get("totalSz")),
+                "avg_px": _maybe_float(f.get("avgPx"))}
+    if "resting" in st:
+        r = st.get("resting") or {}
+        return {"accepted": True, "state": "resting",
+                "detail": "resting (accepted, no immediate fill)",
+                "oid": r.get("oid"), "filled_sz": 0.0, "avg_px": None}
+    return {**unknown, "detail": f"unrecognized status: {st!r}"}
+
+
 def submit(
     intents: List[OrderIntent], config: ExecConfig, creds: Optional[Credentials] = None
 ) -> List[dict]:
     """Submit the intents. With ``confirm=False`` this is a no-op preview.
 
-    Returns a list of result dicts (one per leg). Not unit-tested — requires a
-    live node. The per-asset leverage is set before each order.
+    Returns a list of result dicts (one per leg), each carrying an ``outcome``
+    classification from :func:`interpret_order_result` so a rejected or unfilled
+    leg can't pass silently as success — the caller (e.g. ``exec_cli run``) checks
+    it and surfaces failures. Not unit-tested end to end — requires a live node;
+    the classifier and the CLI verification are unit-tested. The per-asset
+    leverage is set before each order.
     """
     check_safety(intents, config.max_notional)
     if not config.confirm:
@@ -177,5 +237,5 @@ def submit(
             {"limit": {"tif": config.tif}},
             reduce_only=False,
         )
-        results.append({"coin": i.coin, "result": res})
+        results.append({"coin": i.coin, "result": res, "outcome": interpret_order_result(res)})
     return results

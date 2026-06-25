@@ -148,8 +148,40 @@ def cmd_run(args) -> int:
         print(f"error: submission failed: {exc}", file=sys.stderr)
         return 2
 
+    # Verify each leg's outcome — a rejected order must not pass silently.
+    failed = 0
+    warned = 0
     for r in results:
-        print(r)
+        coin = r.get("coin", "?")
+        outcome = r.get("outcome")
+        if outcome is None:
+            # An unclassified leg is the ambiguous case — it must read as a
+            # failure, never silently pass as success.
+            failed += 1
+            print(f"  [FAIL] {coin}: unclassified result — {r}")
+            continue
+        state = outcome.get("state", "unknown")
+        if not outcome.get("accepted"):
+            failed += 1
+            print(f"  [FAIL] {coin}: {state} — {outcome.get('detail')}")
+        elif state == "filled" and outcome.get("filled_sz") is not None:
+            print(f"  [ OK ] {coin}: filled {outcome.get('filled_sz')} "
+                  f"@ {outcome.get('avg_px')} (oid {outcome.get('oid')})")
+        else:
+            # Accepted but not a confirmed fill (resting, or filled with no
+            # reported size) — surface it, don't claim a clean fill.
+            warned += 1
+            print(f"  [WARN] {coin}: {state} — {outcome.get('detail')}")
+
+    if failed:
+        print(f"\nSubmission FAILED: {failed} of {len(results)} leg(s) rejected.",
+              file=sys.stderr)
+        return 1
+    if warned:
+        print(f"\nSubmission completed: {warned} of {len(results)} leg(s) accepted "
+              "but not immediately filled.")
+    else:
+        print(f"\nSubmission OK: all {len(results)} leg(s) filled.")
     return 0
 
 

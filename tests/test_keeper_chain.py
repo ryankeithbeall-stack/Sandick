@@ -199,6 +199,16 @@ def test_core_available_caches_reader_meta():
     assert len(reader_reads) == 1  # reader meta fetched once, then cached
 
 
+def test_core_available_propagates_reader_misconfig():
+    # Resolving the reader meta (perp-dex index + precompile address) happens
+    # OUTSIDE the read guard, so a wrong/undeployed reader surfaces as an error
+    # instead of being silently masked as "no free margin" (fail-closed).
+    c = _client(precompile=_margin_result(100_000_000_000, 0))
+    c.w3.eth._returns_by_addr[READER] = {}  # reader reads now raise
+    with pytest.raises(KeyError):
+        c.core_available()
+
+
 # ── market data ─────────────────────────────────────────────────
 def test_positions_and_prices_from_market_data():
     md = StaticMarketData({"A": 5.0, "B": -2.0}, {"A": 10.0, "B": 20.0})
@@ -312,3 +322,24 @@ def test_run_loop_bounded_and_sleeps_between_ticks():
 def test_run_loop_rejects_negative_interval():
     with pytest.raises(ValueError):
         run_loop(CountingBot(), interval=-1, max_ticks=1)
+
+
+def test_run_loop_survives_tick_exception():
+    # A failing tick must not crash the loop; it becomes an unhealthy report
+    # (non-empty blockers) and the loop carries on so transient blips self-heal.
+    class BoomBot:
+        def __init__(self):
+            self.ticks = 0
+
+        def tick(self):
+            self.ticks += 1
+            raise RuntimeError("rpc down")
+
+    bot = BoomBot()
+    seen = []
+    reports = run_loop(bot, interval=0, max_ticks=2, sleep=lambda s: None, on_report=seen.append)
+    assert bot.ticks == 2                    # ran both ticks, no crash
+    assert len(reports) == 2
+    assert all(r.blockers for r in reports)  # each tick marked unhealthy
+    assert "rpc down" in reports[0].blockers[0]
+    assert seen == reports
