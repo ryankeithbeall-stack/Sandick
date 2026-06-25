@@ -347,4 +347,15 @@ npm run coverage:contracts
 ```
 
 Both suites run in CI on every push and pull request
-([`.github/workflows/ci.yml`](.github/workflows/ci.yml)).
+([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) — Python (ruff + pytest,
+90% coverage gate), contracts (tests + 85%/80% total/per-file coverage gate), and
+an informational [Slither](docs/security/README.md) static-analysis job.
+
+## Governance, operations & security docs
+
+Read before taking real funds — the human gate is [`docs/LAUNCH_SIGNOFF.md`](docs/LAUNCH_SIGNOFF.md).
+
+- **Risk & threats:** [`docs/RISK_REGISTER.md`](docs/RISK_REGISTER.md) · [`docs/security/THREAT_MODEL.md`](docs/security/THREAT_MODEL.md) · [`docs/security/SECURITY_TEST_PLAN.md`](docs/security/SECURITY_TEST_PLAN.md) · [`docs/security/README.md`](docs/security/README.md)
+- **Operations:** [`docs/INCIDENT_AND_SHUTDOWN.md`](docs/INCIDENT_AND_SHUTDOWN.md) · [`docs/ops/MONITORING_POLICY.md`](docs/ops/MONITORING_POLICY.md) · [`docs/ops/RECOVERY_DRILL_RUNBOOK.md`](docs/ops/RECOVERY_DRILL_RUNBOOK.md) · [`docs/ops/ROLE_AND_CUSTODY_POLICY.md`](docs/ops/ROLE_AND_CUSTODY_POLICY.md) · [`docs/ops/KEY_ROTATION_POLICY.md`](docs/ops/KEY_ROTATION_POLICY.md)
+- **Protocol:** [`docs/protocol/PRECOMPILE_SAFETY.md`](docs/protocol/PRECOMPILE_SAFETY.md) · [`docs/protocol/COREWRITER_ACTION_MATRIX.md`](docs/protocol/COREWRITER_ACTION_MATRIX.md) · [`docs/protocol/MARKET_SUITABILITY.md`](docs/protocol/MARKET_SUITABILITY.md)
+- **Depositor-facing:** [`docs/depositor-guide.md`](docs/depositor-guide.md) · [`docs/risk-disclosures.md`](docs/risk-disclosures.md) · [`docs/testnet-signoff.md`](docs/testnet-signoff.md)
