@@ -93,7 +93,9 @@ in everything else.
 
 - [ ] Foundry test suite mirroring the ethereumjs tests, + `forge fmt` / solhint (auditor familiarity).
 - [ ] Fork/integration tests against a HyperEVM testnet fork.
-- [ ] Deposit caps / whitelist if gated access is wanted at launch.
+- [x] Deposit cap — owner-settable TVL cap (`setDepositCap`, 0 = uncapped),
+      enforced in `maxDeposit`/`maxMint` and a hard `_deposit` backstop; never
+      blocks exits or fee/PnL NAV growth. (Per-address whitelist still optional.)
 - [ ] Decide final fee parameters + treasury address (defaults: 2% mgmt / 10% perf / 0.1% exit, recipient = owner).
 - [ ] Governance hardening: move owner to a multisig / timelock before mainnet.
 
