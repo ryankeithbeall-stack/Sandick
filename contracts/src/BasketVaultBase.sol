@@ -96,6 +96,13 @@ abstract contract BasketVaultBase is ERC4626, Ownable, ReentrancyGuard, Pausable
     /// @notice Order notional consumed in the current epoch.
     uint256 public epochNotionalUsed;
 
+    // --- Deposit cap (TVL cap) ---
+    /// @notice Max NAV (`totalAssets`, in asset units) the vault accepts via
+    /// deposit/mint. 0 = uncapped. Enforced in {maxDeposit}/{maxMint} and as a
+    /// hard post-deposit backstop. Never blocks exits or fee/PnL-driven NAV
+    /// growth — only *new* deposits that would push NAV above the cap.
+    uint256 public depositCap;
+
     // --- Async redemption queue (ERC-7540-style) ---
     /// @notice Shares escrowed in the vault awaiting fulfillment, per owner.
     mapping(address => uint256) public pendingRedeemShares;
@@ -171,6 +178,7 @@ abstract contract BasketVaultBase is ERC4626, Ownable, ReentrancyGuard, Pausable
     event RedeemFulfilled(address indexed owner, uint256 shares, uint256 assets);
     event RedeemClaimed(address indexed owner, uint256 assets);
     event OrderCapsUpdated(uint256 maxOrderNotional, uint256 epochNotionalCap, uint64 epochLength);
+    event DepositCapUpdated(uint256 cap);
     event ManagerTimeoutUpdated(uint64 timeout);
     event RedemptionBridgeForced(address indexed caller, uint256 amount);
     event FeesAccrued(uint256 managementAssets, uint256 performanceAssets, uint256 sharesMinted);
@@ -190,6 +198,7 @@ abstract contract BasketVaultBase is ERC4626, Ownable, ReentrancyGuard, Pausable
     error NothingClaimable();
     error OrderNotionalExceeded(uint32 assetId, uint256 notional, uint256 cap);
     error EpochNotionalExceeded(uint256 used, uint256 cap);
+    error DepositCapExceeded(uint256 attempted, uint256 cap);
     error ManagerStillActive();
     error ExceedsRedemptionDeficit(uint256 requested, uint256 deficit);
     error FeeTooHigh();
@@ -279,6 +288,36 @@ abstract contract BasketVaultBase is ERC4626, Ownable, ReentrancyGuard, Pausable
         whenNotPaused
     {
         super._deposit(caller, receiver, assets, shares);
+        // Defense in depth: maxDeposit/maxMint already bound every current path,
+        // so this never fires today. It hard-stops any FUTURE override that might
+        // mint against incoming assets without consulting those views (0 = uncapped).
+        if (depositCap != 0) {
+            uint256 total = totalAssets();
+            if (total > depositCap) revert DepositCapExceeded(total, depositCap);
+        }
+    }
+
+    /// @notice Remaining deposit room under the TVL cap (0 = uncapped -> uint max).
+    /// @dev OZ's deposit() reverts with ERC4626ExceededMaxDeposit past this.
+    function maxDeposit(address receiver) public view override returns (uint256) {
+        uint256 base = super.maxDeposit(receiver);
+        if (depositCap == 0) return base;
+        uint256 total = totalAssets();
+        if (total >= depositCap) return 0;
+        uint256 room = depositCap - total;
+        return room < base ? room : base;
+    }
+
+    /// @notice maxMint mirrors maxDeposit, expressed in shares. Rounds the room
+    /// DOWN to shares, so it may stop a few wei under the cap — never over it;
+    /// deposit() fills the cap exactly.
+    function maxMint(address receiver) public view override returns (uint256) {
+        uint256 base = super.maxMint(receiver);
+        if (depositCap == 0) return base;
+        uint256 total = totalAssets();
+        if (total >= depositCap) return 0;
+        uint256 roomShares = convertToShares(depositCap - total);
+        return roomShares < base ? roomShares : base;
     }
 
     // --------------------------------------------------------------------- //
@@ -691,6 +730,13 @@ abstract contract BasketVaultBase is ERC4626, Ownable, ReentrancyGuard, Pausable
         epochStart = block.timestamp;
         epochNotionalUsed = 0;
         emit OrderCapsUpdated(maxOrderNotional_, epochNotionalCap_, epochLength_);
+    }
+
+    /// @notice Cap total NAV accepted via deposits/mints (0 = uncapped). Does not
+    /// affect existing deposits, exits, or fee/PnL-driven NAV growth.
+    function setDepositCap(uint256 cap) external onlyOwner {
+        depositCap = cap;
+        emit DepositCapUpdated(cap);
     }
 
     /// @notice Pause deposits/mints and manager trading (submitBasket, bridgeToCore).

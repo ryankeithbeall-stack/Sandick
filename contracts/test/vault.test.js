@@ -331,6 +331,52 @@ async function main() {
     return { ...f, shares };
   }
 
+  await test("setDepositCap is owner-only", async () => {
+    const { vault } = await fixture();
+    await assert.rejects(vault.send(manager, "setDepositCap", [1000n * USDC]));
+    await assert.rejects(vault.send(alice, "setDepositCap", [1000n * USDC]));
+    await vault.send(owner, "setDepositCap", [1000n * USDC]);
+    assert.equal(await vault.call("depositCap"), 1000n * USDC);
+  });
+
+  await test("deposit cap limits deposits and reflects remaining room", async () => {
+    const { vault } = await fixture();
+    await vault.send(owner, "setDepositCap", [1000n * USDC]);
+    assert.equal(await vault.call("maxDeposit", [a(alice)]), 1000n * USDC);
+    await vault.send(alice, "deposit", [600n * USDC, a(alice)]);
+    assert.equal(await vault.call("maxDeposit", [a(alice)]), 400n * USDC); // room shrinks
+    await assert.rejects(vault.send(bob, "deposit", [500n * USDC, a(bob)])); // > room
+    await vault.send(bob, "deposit", [400n * USDC, a(bob)]);                 // exactly fills
+    assert.equal(await vault.call("totalAssets"), 1000n * USDC);
+    assert.equal(await vault.call("maxDeposit", [a(alice)]), 0n);           // full
+    await assert.rejects(vault.send(alice, "deposit", [1n, a(alice)]));     // nothing more
+  });
+
+  await test("deposit cap limits mint too (maxMint mirrors maxDeposit)", async () => {
+    const { vault } = await fixture();
+    await vault.send(owner, "setDepositCap", [500n * USDC]);
+    const maxMint = await vault.call("maxMint", [a(alice)]);
+    await assert.rejects(vault.send(alice, "mint", [maxMint + 1n, a(alice)])); // over room
+    await vault.send(alice, "mint", [maxMint, a(alice)]);                      // fills to cap
+    assert.ok((await vault.call("totalAssets")) <= 500n * USDC);
+  });
+
+  await test("deposit cap = 0 means uncapped", async () => {
+    const { vault } = await fixture();
+    assert.equal(await vault.call("depositCap"), 0n); // default
+    await vault.send(alice, "deposit", [900_000n * USDC, a(alice)]); // large, allowed
+    assert.equal(await vault.call("totalAssets"), 900_000n * USDC);
+  });
+
+  await test("deposit cap never blocks exits", async () => {
+    const { vault } = await fixture();
+    await vault.send(alice, "deposit", [1000n * USDC, a(alice)]);
+    await vault.send(owner, "setDepositCap", [1n]); // cap now far below NAV
+    const shares = await vault.call("balanceOf", [a(alice)]);
+    await vault.send(alice, "redeem", [shares, a(alice), a(alice)]); // still exits
+    assert.equal(await vault.call("balanceOf", [a(alice)]), 0n);
+  });
+
   await test("redemption backstop is shut while the manager is active", async () => {
     const { vault } = await deficitFixture();
     assert.equal(await vault.call("managerIsDark"), false);

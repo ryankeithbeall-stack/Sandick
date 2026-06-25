@@ -121,7 +121,9 @@ step-by-step runbook for all of this now lives in
       action; `accrueFees()` poke. Tested (5 contract tests). **Note for audit:**
       performance fee keys off on-chain NAV — verify the read can't be transiently
       inflated to mint excess fee shares.
-- [ ] Deposit caps / whitelisting if access control is wanted later.
+- [x] **Deposit cap** (owner-settable TVL cap, 0 = uncapped): `setDepositCap`,
+      enforced in `maxDeposit`/`maxMint` + a hard `_deposit` backstop. Per-address
+      whitelisting still optional.
 - [x] Docs: depositor-facing explainer + risk disclosures (`docs/`).
 
 ---
