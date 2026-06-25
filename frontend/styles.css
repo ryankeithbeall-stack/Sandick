@@ -151,7 +151,7 @@ code {
   width: 100%; border-radius: var(--radius);
   background: #fff; padding: 22px;
   border: 1px solid var(--line);
-  box-shadow: 0 30px 80px -30px rgba(43,180,240,.4);
+  box-shadow: 0 30px 80px -30px rgba(142,36,170,.4);
 }
 .hero__art figcaption { text-align: center; color: var(--muted); font-size: 13px; margin-top: 14px; letter-spacing: .02em; }
 
