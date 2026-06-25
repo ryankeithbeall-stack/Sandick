@@ -7,6 +7,7 @@ from sandick.execute import (
     Credentials,
     ExecConfig,
     check_safety,
+    interpret_order_result,
     marketable_limit,
     order_coin,
     plan_to_intents,
@@ -206,3 +207,79 @@ def test_submit_confirmed_requires_allow_live_tx_env(monkeypatch):
                         lambda *a, **k: (_ for _ in ()).throw(AssertionError("must not build exchange")))
     with pytest.raises(Exception, match="ALLOW_LIVE_TX"):
         submit(intents, ExecConfig(confirm=True), creds=creds)
+
+
+# ---- order-result classification (fill verification) -------------------
+
+def test_interpret_filled_order():
+    res = {"status": "ok", "response": {"type": "order", "data": {"statuses": [
+        {"filled": {"totalSz": "1.5", "avgPx": "100.25", "oid": 42}},
+    ]}}}
+    out = interpret_order_result(res)
+    assert out["accepted"] is True
+    assert out["state"] == "filled"
+    assert out["oid"] == 42
+    assert out["filled_sz"] == pytest.approx(1.5)
+    assert out["avg_px"] == pytest.approx(100.25)
+
+
+def test_interpret_resting_order_is_accepted_but_unfilled():
+    res = {"status": "ok", "response": {"data": {"statuses": [{"resting": {"oid": 7}}]}}}
+    out = interpret_order_result(res)
+    assert out["accepted"] is True
+    assert out["state"] == "resting"
+    assert out["oid"] == 7
+    assert out["filled_sz"] == 0.0
+
+
+def test_interpret_per_order_error_is_rejected():
+    res = {"status": "ok", "response": {"data": {"statuses": [
+        {"error": "Order price cannot be more than 95% away from reference"},
+    ]}}}
+    out = interpret_order_result(res)
+    assert out["accepted"] is False
+    assert out["state"] == "rejected"
+    assert "95%" in out["detail"]
+
+
+def test_interpret_top_level_error_is_not_accepted():
+    res = {"status": "err", "response": "Insufficient margin to place order"}
+    out = interpret_order_result(res)
+    assert out["accepted"] is False
+    assert out["state"] == "error"
+    assert "Insufficient margin" in out["detail"]
+
+
+def test_interpret_ok_without_statuses_is_not_accepted():
+    # A bare {"status": "ok"} must NOT read as a successful fill.
+    out = interpret_order_result({"status": "ok"})
+    assert out["accepted"] is False
+    assert out["state"] == "unknown"
+
+
+def test_interpret_non_dict_and_unrecognized_are_not_accepted():
+    assert interpret_order_result("boom")["accepted"] is False
+    weird = {"status": "ok", "response": {"data": {"statuses": ["nope"]}}}
+    assert interpret_order_result(weird)["accepted"] is False
+    other = {"status": "ok", "response": {"data": {"statuses": [{"queued": {}}]}}}
+    assert interpret_order_result(other)["accepted"] is False
+
+
+def test_submit_attaches_outcome_per_leg(monkeypatch):
+    monkeypatch.setenv("ALLOW_LIVE_TX", "1")
+    plan = build_plan(_basket(), PRICES, capital=1000.0)
+    intents = plan_to_intents(plan)
+
+    class _FillExchange:
+        def update_leverage(self, *a):  # noqa: D401
+            pass
+
+        def order(self, coin, *a, **k):
+            return {"status": "ok", "response": {"data": {"statuses": [
+                {"filled": {"totalSz": "1", "avgPx": "10", "oid": 1}}]}}}
+
+    monkeypatch.setattr(execute_mod, "_make_exchange", lambda creds, testnet: _FillExchange())
+    creds = Credentials(secret_key="k", account_address=None, vault_address="0xv")
+    results = submit(intents, ExecConfig(confirm=True), creds=creds)
+    assert all(r["outcome"]["accepted"] for r in results)
+    assert all(r["outcome"]["state"] == "filled" for r in results)

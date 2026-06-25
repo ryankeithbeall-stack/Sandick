@@ -237,15 +237,26 @@ class Web3KeeperClient:
 
         Margin backing open positions can't be pulled, so the keeper bridges only
         against the free portion. A never-initialized Core account makes the
-        precompile revert — treated as 0 available (seed the account first)."""
+        precompile revert — treated as 0 available (seed the account first).
+
+        Failure handling is deliberately *scoped* rather than a blanket catch:
+        resolving the reader meta (perp-dex index + precompile address) happens
+        *outside* the guard, so a misconfigured/undeployed reader surfaces as an
+        error instead of being silently masked as "no free margin". Only the
+        precompile read+decode degrades to 0.0 — that is the genuine
+        "account not initialized / momentarily unreadable" case, and bridging
+        nothing is the fail-safe response to it."""
+        # Reader-meta resolution is intentionally NOT guarded: a failure here is a
+        # deployment/config error, not "no margin", and must propagate loudly.
+        dex_index, precompile = self._margin_meta()
+        query = "0x" + encode_margin_query(dex_index, self.vault_address).hex()
         try:
-            dex_index, precompile = self._margin_meta()
-            data = self.w3.eth.call({
-                "to": precompile,
-                "data": "0x" + encode_margin_query(dex_index, self.vault_address).hex(),
-            })
+            data = self.w3.eth.call({"to": precompile, "data": query})
             account_value, margin_used = decode_margin_summary(bytes(data))
         except Exception:
+            # Precompile reverted (uninitialized account) or returned short data,
+            # or the node was momentarily unreadable — treat as 0 free margin so
+            # the keeper bridges nothing (fail-safe) until the read succeeds.
             return 0.0
         free = account_value - margin_used
         return self._to_float(free) if free > 0 else 0.0

@@ -105,6 +105,9 @@ def build_bot(
 
 def format_report(report: KeeperReport) -> str:
     """One-line human summary of a tick (for the loop's ``on_report``)."""
+    if report.blockers:
+        # Gate-blocked or a crashed tick — must not read as "ok" on the console.
+        return "BLOCKED: " + "; ".join(report.blockers)
     liq, reb = report.liquidity, report.rebalance
     parts: List[str] = []
     if liq.bridged > 0:
@@ -244,17 +247,21 @@ def main(argv: Optional[List[str]] = None, *, client_factory: Optional[Callable]
 
     def on_report(r: KeeperReport) -> None:
         print(format_report(r))
+        snap = format_report_json(r)
+        # Track health unconditionally so a crashed/gate-blocked tick is reflected
+        # in the exit code even without --health-out (run_loop turns a tick crash
+        # into an unhealthy report rather than propagating it). --health-out only
+        # controls whether the snapshot is also persisted for monitoring.
+        health["healthy"] = snap["healthy"]
         if args.health_out:
-            snap = format_report_json(r)
             Path(args.health_out).write_text(json.dumps(snap, indent=2), encoding="utf-8")
-            health["healthy"] = snap["healthy"]
 
     max_ticks = 1 if args.once else args.max_ticks
     run_loop(bot, interval=args.interval, max_ticks=max_ticks, on_report=on_report)
 
-    # With a health sink, surface the last tick's health as the exit code so the
-    # keeper is cron/CI-monitorable.
-    return 1 if (args.health_out and not health["healthy"]) else 0
+    # Surface the last tick's health as the exit code so the keeper is
+    # cron/CI-monitorable: a hard fault or gate-block exits non-zero.
+    return 0 if health["healthy"] else 1
 
 
 if __name__ == "__main__":  # pragma: no cover

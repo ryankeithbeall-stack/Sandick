@@ -215,6 +215,41 @@ def test_health_out_exit_nonzero_when_unhealthy(tmp_path):
     assert snap["healthy"] is False and snap["blockers"]
 
 
+def test_main_exit_nonzero_when_unhealthy_without_health_out(tmp_path):
+    # Exit code reflects health even without --health-out: a gate-blocked tick
+    # must not report success to the shell.
+    deploy = _write_deploy(tmp_path, _full_ids())
+    rc = main(
+        ["--basket", str(BASKET), "--deploy", str(deploy),
+         "--rpc-url", "http://n", "--vault", "0xV", "--usdc", "0xU", "--once"],
+        client_factory=lambda **k: UnhealthyClient(),
+    )
+    assert rc == 1
+
+
+class CrashingClient:
+    """Every read raises -> tick() blows up; run_loop turns it into an unhealthy
+    report and main() must still exit non-zero even without --health-out."""
+
+    def idle_assets(self): return 1.0
+    def pending_redeem_assets(self): return 0.0
+    def nav(self): return 1.0
+    def core_available(self): raise RuntimeError("rpc down")
+    def positions(self): return {c: 1.0 for c in _full_ids()}
+    def prices(self): return {c: 10.0 for c in _full_ids()}
+
+
+def test_main_exit_nonzero_when_tick_crashes(tmp_path, capsys):
+    deploy = _write_deploy(tmp_path, _full_ids())
+    rc = main(
+        ["--basket", str(BASKET), "--deploy", str(deploy),
+         "--rpc-url", "http://node", "--vault", "0xVAULT", "--usdc", "0xUSDC", "--once"],
+        client_factory=lambda **k: CrashingClient(),
+    )
+    assert rc == 1
+    assert "BLOCKED" in capsys.readouterr().out
+
+
 def test_main_execute_requires_key(tmp_path, monkeypatch):
     monkeypatch.delenv("MANAGER_KEY", raising=False)
     monkeypatch.delenv("HL_SECRET_KEY", raising=False)
