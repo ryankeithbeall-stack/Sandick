@@ -46,7 +46,7 @@ for **every** basket coin, USDC's `usdcSystemAddress` + `usdcCoreTokenIndex`, an
 a `coreScale`. Sanity-check each against the docs/explorer — these are the
 "unverified inputs" the contract comments warn about.
 
-> ⚠️ Replace the placeholder basket symbols (`SKHYNIX`, dex `tradexyz`) with the
+> ⚠️ Replace the placeholder basket symbols (`KIOXIA`, dex `tradexyz`) with the
 > **real** Trade.xyz dex name + coin symbols first, in
 > `config/sandick.basket.json`. Confirm the vault's USDC is 6-decimal (else the
 > derived `coreScale` is wrong).

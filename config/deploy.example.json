@@ -11,7 +11,7 @@
     "DELL": 110003,
     "INTC": 110004,
     "CRWV": 110005,
-    "SKHYNIX": 110006
+    "KIOXIA": 110006
   },
   "marginSummaryPrecompile": "0x000000000000000000000000000000000000080F",
   "usdcCoreTokenIndex": 0,

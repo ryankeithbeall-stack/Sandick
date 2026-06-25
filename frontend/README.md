@@ -36,7 +36,7 @@ python -m http.server 8000 --directory frontend
   fee. SANDICK is pinned as the flagship / #1 performer; the others are demo
   entries. Data lives in the `VAULTS` array in `app.js`.
 - **Flagship (SANDICK)** — the deep-dive for the flagship vault: the seven names
-  (SanDisk, Arm Holdings, Nebius, Dell, Intel, CoreWeave, SK Hynix) whose logos
+  (SanDisk, Arm Holdings, Nebius, Dell, Intel, CoreWeave, Kioxia) whose logos
   spell **S A N D I C K**, each at 14.29%.
 - **Calculator** — a live equal-weight planner. `allocate()` in `app.js` is a
   faithful port of `sandick.allocator.build_plan` (equal-weight branch):
