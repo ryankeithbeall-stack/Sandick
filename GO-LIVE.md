@@ -57,8 +57,8 @@ in everything else.
 ### 6. Run the keeper against a live node
 - [ ] `pip install -e ".[keeper,live]"`; run `sandick-keeper --once` in **preview** first.
 - [ ] Verify `HyperliquidMarketData.positions()` parses the HIP-3 dex payload (the one untested line).
-- [ ] Flip to `--execute` only after step 2 passes.
-- [ ] Add monitoring + alerting (NAV drift, failed actions, low idle buffer, drawdown).
+- [ ] Flip to `--execute` only after step 2 passes — **and** export `ALLOW_LIVE_TX=1`. Every signed broadcast (keeper bridge/submit and `exec_cli` orders) is hard-gated on that env var on top of `--execute`/`confirm`, so an accidental `--execute` with a key present can never transmit. Leave it unset everywhere except the deliberate live runner.
+- [ ] Add monitoring + alerting (NAV drift, failed actions, low idle buffer, drawdown). The keeper now emits a fail-closed gate (`blockers`) and a machine-readable health snapshot — run `sandick-keeper --once --health-out health.json` (exits non-zero when unhealthy) from cron/CI and alert on it.
 - **Done when:** the keeper services liquidity + rebalances on testnet and alerts on misses.
 
 ### 7. Go live on the frontend

@@ -14,6 +14,7 @@ from sandick.keeper_bot import KeeperReport, LiquidityResult, RebalanceResult
 from sandick.keeper_cli import (
     build_bot,
     format_report,
+    format_report_json,
     load_keeper_inputs,
     main,
 )
@@ -146,6 +147,72 @@ def test_main_missing_deploy_file_is_clean_error(tmp_path, capsys):
     )
     assert rc == 2
     assert "config file not found" in capsys.readouterr().out
+
+
+# ── health snapshot ─────────────────────────────────────────────
+class UnhealthyClient:
+    """idle > nav -> the fail-closed gate blocks the tick (unhealthy)."""
+
+    def idle_assets(self): return 2_000_000.0
+    def pending_redeem_assets(self): return 0.0
+    def nav(self): return 1_000_000.0
+    def core_available(self): return 0.0
+    def positions(self): return {}
+    def prices(self): return {}
+
+
+def test_format_report_json_healthy():
+    r = KeeperReport(
+        liquidity=LiquidityResult(0.0, 0.0, False, True, note="ok"),
+        rebalance=RebalanceResult(triggered=False, verified=True),
+    )
+    snap = format_report_json(r)
+    assert snap["healthy"] is True and snap["blockers"] == []
+
+
+def test_format_report_json_unhealthy_on_blockers():
+    r = KeeperReport(
+        liquidity=LiquidityResult(0.0, 0.0, False, False, note="gate blocked: x"),
+        rebalance=RebalanceResult(triggered=False, verified=False),
+        blockers=("idle exceeds NAV",),
+    )
+    snap = format_report_json(r)
+    assert snap["healthy"] is False and "idle exceeds NAV" in snap["blockers"]
+
+
+def test_format_report_json_unhealthy_on_shortfall():
+    r = KeeperReport(
+        liquidity=LiquidityResult(0.0, 120.0, False, True),
+        rebalance=RebalanceResult(triggered=False, verified=True),
+    )
+    assert format_report_json(r)["healthy"] is False
+
+
+def test_health_out_writes_snapshot_exit_zero_when_healthy(tmp_path):
+    deploy = _write_deploy(tmp_path, _full_ids())
+    out = tmp_path / "health.json"
+    rc = main(
+        ["--basket", str(BASKET), "--deploy", str(deploy),
+         "--rpc-url", "http://n", "--vault", "0xV", "--usdc", "0xU",
+         "--once", "--health-out", str(out)],
+        client_factory=lambda **k: FakeClient(),
+    )
+    assert rc == 0
+    assert json.loads(out.read_text())["healthy"] is True
+
+
+def test_health_out_exit_nonzero_when_unhealthy(tmp_path):
+    deploy = _write_deploy(tmp_path, _full_ids())
+    out = tmp_path / "health.json"
+    rc = main(
+        ["--basket", str(BASKET), "--deploy", str(deploy),
+         "--rpc-url", "http://n", "--vault", "0xV", "--usdc", "0xU",
+         "--once", "--health-out", str(out)],
+        client_factory=lambda **k: UnhealthyClient(),
+    )
+    assert rc == 1
+    snap = json.loads(out.read_text())
+    assert snap["healthy"] is False and snap["blockers"]
 
 
 def test_main_execute_requires_key(tmp_path, monkeypatch):

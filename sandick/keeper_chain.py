@@ -27,6 +27,7 @@ from decimal import ROUND_FLOOR, Decimal
 from typing import Dict, List, Optional, Protocol
 
 from .onchain import OnchainOrder
+from .safety import require_tx_allowed
 
 # ── Minimal ABIs (only the functions the keeper touches) ────────────────────
 _ORDER_COMPONENTS = [
@@ -281,6 +282,7 @@ class Web3KeeperClient:
     def _send(self, fn) -> str:
         if self.account is None:
             raise RuntimeError("no signing account configured; client is read-only")
+        require_tx_allowed("keeper bridge/submit")
         addr = self.account.address
         tx = fn.build_transaction({
             "from": addr,

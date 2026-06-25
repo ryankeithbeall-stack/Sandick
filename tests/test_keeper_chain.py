@@ -213,7 +213,8 @@ def test_positions_without_market_data_raises():
 
 
 # ── writes ──────────────────────────────────────────────────────
-def test_bridge_from_core_converts_and_sends():
+def test_bridge_from_core_converts_and_sends(monkeypatch):
+    monkeypatch.setenv("ALLOW_LIVE_TX", "1")
     acct = FakeAccount()
     c = _client(account=acct)
     tx_hash = c.bridge_from_core(1234.56)
@@ -224,14 +225,16 @@ def test_bridge_from_core_converts_and_sends():
     assert built["from"] == acct.address and built["nonce"] == 7
 
 
-def test_bridge_from_core_floors_sub_unit():
+def test_bridge_from_core_floors_sub_unit(monkeypatch):
+    monkeypatch.setenv("ALLOW_LIVE_TX", "1")
     acct = FakeAccount()
     c = _client(account=acct)
     c.bridge_from_core(0.0000019)                        # below 1e-6 -> floors to 1
     assert acct.signed[0]["args"] == (1,)
 
 
-def test_submit_basket_encodes_order_tuples():
+def test_submit_basket_encodes_order_tuples(monkeypatch):
+    monkeypatch.setenv("ALLOW_LIVE_TX", "1")
     acct = FakeAccount()
     c = _client(account=acct, gas=500_000)
     orders = [
@@ -252,6 +255,17 @@ def test_writes_require_account():
     c = _client(account=None)
     with pytest.raises(RuntimeError, match="read-only"):
         c.bridge_from_core(100.0)
+
+
+def test_send_requires_allow_live_tx_env(monkeypatch):
+    # account present but the hard env gate is not set -> refuse to broadcast
+    monkeypatch.delenv("ALLOW_LIVE_TX", raising=False)
+    c = _client(account=FakeAccount())
+    with pytest.raises(Exception, match="ALLOW_LIVE_TX"):
+        c.bridge_from_core(100.0)
+    # opting in lets it through
+    monkeypatch.setenv("ALLOW_LIVE_TX", "1")
+    assert c.bridge_from_core(100.0) == "abcd"
 
 
 # ── end-to-end with the bot ─────────────────────────────────────

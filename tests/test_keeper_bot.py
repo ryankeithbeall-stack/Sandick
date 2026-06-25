@@ -173,3 +173,14 @@ def test_rebalance_unverified_when_drift_persists():
     res = _bot(client, dry_run=False, config=KeeperConfig()).tick().rebalance
     assert res.submitted is True and res.verified is False
     assert "UNVERIFIED" in res.note
+
+
+# ── fail-closed gate ────────────────────────────────────────────
+def test_bot_refuses_to_act_on_contradictory_reads():
+    # idle (5,000) exceeds NAV (1,000) -> a contradiction; the bot must not act
+    client = FakeClient(idle=5000, pending=0, nav=1000, core=5000)
+    report = _bot(client, dry_run=False).tick()
+    assert report.blockers  # gate fired
+    assert report.liquidity.submitted is False and report.rebalance.submitted is False
+    assert client.bridged == [] and client.submitted == []
+    assert "gate blocked" in report.liquidity.note

@@ -160,6 +160,7 @@ class _FakeExchange:
 
 
 def test_submit_confirmed_sets_leverage_then_orders(monkeypatch):
+    monkeypatch.setenv("ALLOW_LIVE_TX", "1")
     plan = build_plan(_basket(), PRICES, capital=1000.0)
     intents = plan_to_intents(plan)
     fake = _FakeExchange()
@@ -193,3 +194,15 @@ def test_submit_confirmed_enforces_max_notional_before_sending(monkeypatch):
 def test_submit_rejects_empty_intents():
     with pytest.raises(ValueError):
         submit([], ExecConfig(confirm=True))
+
+
+def test_submit_confirmed_requires_allow_live_tx_env(monkeypatch):
+    # confirm=True but the hard env gate is unset -> refuse to broadcast
+    monkeypatch.delenv("ALLOW_LIVE_TX", raising=False)
+    plan = build_plan(_basket(), PRICES, capital=1000.0)
+    intents = plan_to_intents(plan)
+    creds = Credentials(secret_key="k", account_address=None, vault_address="0xv")
+    monkeypatch.setattr(execute_mod, "_make_exchange",
+                        lambda *a, **k: (_ for _ in ()).throw(AssertionError("must not build exchange")))
+    with pytest.raises(Exception, match="ALLOW_LIVE_TX"):
+        submit(intents, ExecConfig(confirm=True), creds=creds)
