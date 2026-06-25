@@ -68,9 +68,24 @@ in everything else.
 - **Done when:** the live UI completes a deposit→redeem cycle against the deployed vault.
 
 ### 8. Contract NAV completeness
-- [ ] Wire the real spot-balance precompile into `_coreSpotUsd()` so USDC parked mid-bridge counts toward NAV.
-- [ ] Add explicit stale-read handling for the margin-summary precompile.
-- **Done when:** NAV is continuous through a bridge and stale reads can't misprice deposits. (Best done during step 3.)
+- [x] Wire the real spot-balance precompile into `_coreSpotUsd()` so USDC parked
+      mid-bridge counts toward NAV. **Done in code:** `HyperCoreReader.spotBalanceUsd`
+      reads the `0x..0801` precompile and scales spot-wei (8dp) down to the asset's
+      6dp; `BasketVault` overrides the hook. **Still must be verified on testnet** —
+      see the reader's MUST-VERIFY notes (precompile address, input ABI order
+      `(address,uint64)`, USDC `weiDecimals`, and uninitialized-account
+      revert-vs-zeros, which would brick `totalAssets()` if it reverts).
+- [ ] **Verify the USDC↔Core bridge decimal convention.** `usdClassTransfer`
+      (perp ntl) and `spotSend` (spot wei) may use *different* decimals, yet
+      `BasketVault` passes the same `coreScale`d amount to both. The new spot
+      reader makes any mis-scaling visible in NAV, so confirm the bridged amounts
+      are correct end-to-end before trusting mid-bridge NAV continuity.
+- [x] Failed/short precompile reads now **revert** (`MarginSummaryReadFailed` /
+      `SpotBalanceReadFailed`) instead of returning a stale/zero value that could
+      misprice deposits. NAV-manipulation resistance on the performance-fee path
+      stays an audit focus (step 4).
+- **Done when:** NAV is continuous through a bridge and reads can't misprice
+  deposits or fee shares. (Best done during step 3.)
 
 ---
 

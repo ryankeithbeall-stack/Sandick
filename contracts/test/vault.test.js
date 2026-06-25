@@ -198,7 +198,8 @@ async function main() {
   await test("HyperCoreReader returns accountValue (clamping negatives)", async () => {
     const vm = await makeVM();
     const ms = await deploy(vm, artifacts.MockMarginSummary, []);
-    const reader = await deploy(vm, artifacts.HyperCoreReader, [a(ms.address), 0]);
+    const sb = await deploy(vm, artifacts.MockSpotBalance, []);
+    const reader = await deploy(vm, artifacts.HyperCoreReader, [a(ms.address), 0, a(sb.address), 0, 100]);
     assert.equal(await reader.call("accountEquityUsd", [a(alice)]), 0n);
     await ms.send(deployer, "setAccountValue", [1234n * USDC]);
     assert.equal(await reader.call("accountEquityUsd", [a(alice)]), 1234n * USDC);
@@ -206,11 +207,39 @@ async function main() {
     assert.equal(await reader.call("accountEquityUsd", [a(alice)]), 0n);
   });
 
-  await test("production BasketVault NAV = idle + reader equity", async () => {
+  await test("HyperCoreReader spotBalanceUsd scales spot-wei (8dp) down to asset 6dp", async () => {
+    const vm = await makeVM();
+    const ms = await deploy(vm, artifacts.MockMarginSummary, []);
+    const sb = await deploy(vm, artifacts.MockSpotBalance, []);
+    const reader = await deploy(vm, artifacts.HyperCoreReader, [a(ms.address), 0, a(sb.address), 0, 100]);
+    assert.equal(await reader.call("spotBalanceUsd", [a(alice)]), 0n);   // empty spot account
+    // 300 USDC parked in spot, expressed in HyperCore 8dp wei (300 * 1e8 = 3e10)
+    await sb.send(deployer, "setTotal", [300n * 100n * USDC]);
+    assert.equal(await reader.call("spotBalanceUsd", [a(alice)]), 300n * USDC); // -> 6dp
+    // Sub-divisor dust truncates toward zero (conservative for NAV): 150 wei -> 1.
+    await sb.send(deployer, "setTotal", [150n]);
+    assert.equal(await reader.call("spotBalanceUsd", [a(alice)]), 1n);
+  });
+
+  await test("reader reverts (never silently 0) on a short/failed precompile read", async () => {
+    const vm = await makeVM();
+    const ms = await deploy(vm, artifacts.MockMarginSummary, []);
+    const sb = await deploy(vm, artifacts.MockSpotBalance, []);
+    // Point each precompile at an address with NO code: the staticcall succeeds
+    // but returns 0 bytes (< the required 96/128), which must REVERT — a silent 0
+    // would misprice NAV. (bob is a plain EOA, no contract code.)
+    const spotBad = await deploy(vm, artifacts.HyperCoreReader, [a(ms.address), 0, a(bob), 0, 100]);
+    await assert.rejects(spotBad.call("spotBalanceUsd", [a(alice)]));
+    const marginBad = await deploy(vm, artifacts.HyperCoreReader, [a(bob), 0, a(sb.address), 0, 100]);
+    await assert.rejects(marginBad.call("accountEquityUsd", [a(alice)]));
+  });
+
+  await test("production BasketVault NAV = idle + perp equity + spot balance", async () => {
     const vm = await makeVM();
     const usdc = await deploy(vm, artifacts.MockERC20, ["USD Coin", "USDC", 6]);
     const ms = await deploy(vm, artifacts.MockMarginSummary, []);
-    const reader = await deploy(vm, artifacts.HyperCoreReader, [a(ms.address), 0]);
+    const sb = await deploy(vm, artifacts.MockSpotBalance, []);
+    const reader = await deploy(vm, artifacts.HyperCoreReader, [a(ms.address), 0, a(sb.address), 0, 100]);
     // BasketVault now takes a single VaultParams struct (one tuple arg).
     const vault = await deploy(vm, artifacts.BasketVault, [[
       a(usdc.address), "SANDICK Vault", "sSANDICK", a(manager), a(owner), a(reader.address),
@@ -219,10 +248,12 @@ async function main() {
     ]]);
     await usdc.send(deployer, "mint", [a(alice), 1_000_000n * USDC]);
     await usdc.send(alice, "approve", [a(vault.address), 1n << 255n]);
-    await vault.send(alice, "deposit", [1000n * USDC, a(alice)]); // idle 1000, equity 0
+    await vault.send(alice, "deposit", [1000n * USDC, a(alice)]); // idle 1000, equity 0, spot 0
     assert.equal(await vault.call("totalAssets"), 1000n * USDC);
-    await ms.send(deployer, "setAccountValue", [500n * USDC]); // simulate Core equity
+    await ms.send(deployer, "setAccountValue", [500n * USDC]); // simulate Core perp equity
     assert.equal(await vault.call("totalAssets"), 1500n * USDC);
+    await sb.send(deployer, "setTotal", [200n * 100n * USDC]); // 200 USDC parked in spot (8dp)
+    assert.equal(await vault.call("totalAssets"), 1700n * USDC); // idle 1000 + perp 500 + spot 200
   });
 
   await test("pause blocks deposits and trading but never blocks exits", async () => {
@@ -483,7 +514,8 @@ async function main() {
     const vm = await makeVM();
     const usdc = await deploy(vm, artifacts.MockERC20, ["USD Coin", "USDC", 6]);
     const ms = await deploy(vm, artifacts.MockMarginSummary, []);
-    const reader = await deploy(vm, artifacts.HyperCoreReader, [a(ms.address), 0]);
+    const sb = await deploy(vm, artifacts.MockSpotBalance, []);
+    const reader = await deploy(vm, artifacts.HyperCoreReader, [a(ms.address), 0, a(sb.address), 0, 100]);
     // platform owner = owner, protocol treasury = bob, platform fee = 1%/yr
     const factory = await deploy(vm, artifacts.VaultFactory, [a(owner), a(bob), 100]);
     const core = [a(reader.address), a(alice) /*dummy usdc system*/, 1, 1, 3];
@@ -492,7 +524,7 @@ async function main() {
       a(usdc.address), "SANDICK Vault", "sSANDICK", a(manager), core,
     ]);
     const vault = at(vm, artifacts.BasketVault.abi, vaultAddr);
-    return { vm, usdc, ms, reader, factory, vault, vaultAddr, core };
+    return { vm, usdc, ms, sb, reader, factory, vault, vaultAddr, core };
   }
 
   await test("factory creates a vault, records it, and wires the platform fee", async () => {
@@ -698,7 +730,8 @@ async function main() {
     const vm = await makeVM();
     const usdc = await deploy(vm, artifacts.MockERC20, ["USD Coin", "USDC", 6]);
     const ms = await deploy(vm, artifacts.MockMarginSummary, []);
-    const reader = await deploy(vm, artifacts.HyperCoreReader, [a(ms.address), 0]);
+    const sb = await deploy(vm, artifacts.MockSpotBalance, []);
+    const reader = await deploy(vm, artifacts.HyperCoreReader, [a(ms.address), 0, a(sb.address), 1, 1]);
     const vault = await deploy(vm, artifacts.BasketVault, [[
       a(usdc.address), "SANDICK Vault", "sSANDICK", a(manager), a(owner), a(reader.address),
       USDC_SYS, 1 /*usdcCoreTokenIndex*/, 1 /*coreScale*/, 3 /*tif IOC*/,

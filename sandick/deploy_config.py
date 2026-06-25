@@ -16,6 +16,8 @@ from .onchain import hip3_asset_id
 
 # accountMarginSummary read precompile (mainnet/testnet).
 ACCOUNT_MARGIN_SUMMARY_PRECOMPILE = "0x000000000000000000000000000000000000080F"
+# spotBalance read precompile (mainnet/testnet).
+SPOT_BALANCE_PRECOMPILE = "0x0000000000000000000000000000000000000801"
 
 
 def usdc_system_address(token_index: int) -> str:
@@ -96,6 +98,7 @@ def build_deploy_config(
         "perpDexIndex": perp_dex_index,
         "assetIds": asset_ids,
         "marginSummaryPrecompile": ACCOUNT_MARGIN_SUMMARY_PRECOMPILE,
+        "spotBalancePrecompile": SPOT_BALANCE_PRECOMPILE,
         "usdcCoreTokenIndex": token_index,
         "usdcSystemAddress": usdc_system_address(token_index),
         "coreScale": core_scale(evm_usdc_decimals, core_wei_decimals),

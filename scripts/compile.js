@@ -13,6 +13,7 @@ const ENTRIES = [
   "contracts/test/mocks/MockBasketVault.sol",
   "contracts/test/mocks/MockERC20.sol",
   "contracts/test/mocks/MockMarginSummary.sol",
+  "contracts/test/mocks/MockSpotBalance.sol",
   "contracts/test/mocks/MockCoreWriter.sol",
 ];
 

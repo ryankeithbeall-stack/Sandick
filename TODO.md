@@ -58,9 +58,11 @@ step-by-step runbook for all of this now lives in
       (share price = on-chain reads; any manipulation = mispriced deposits).
 
 ## 4. Contract hardening 🟠
-- [~] **NAV completeness**: `_coreSpotUsd()` hook is now folded into
-      `totalAssets` (default 0); wiring the real spot-balance precompile so USDC
-      parked in spot mid-bridge is counted remains.
+- [x] **NAV completeness**: `_coreSpotUsd()` now reads the real spot-balance
+      precompile (`HyperCoreReader.spotBalanceUsd`, scaling spot-wei 8dp → asset
+      6dp) so USDC parked in spot mid-bridge is counted in `totalAssets`. Pending
+      testnet verification of the precompile ABI + the USDC↔Core bridge decimal
+      convention (see GO-LIVE.md step 8).
 - [x] **Pausability / circuit breaker** (owner pauses deposits/trading; exits
       stay open). `pause`/`unpause` in `BasketVaultBase`.
 - [x] **Per-tx and per-epoch caps** on manager order notional (`setOrderCaps`).
@@ -71,8 +73,10 @@ step-by-step runbook for all of this now lives in
       trades/bridges reset the countdown; the backstop never moves funds out of
       the vault. So a dark manager can delay exits but never trap them. Tested
       (5 contract tests; the EVM harness now supports a mutable clock).
-- [~] Handle negative/under-water `accountValue` (reader clamps to 0); **stale
-      reads** still need explicit handling.
+- [~] Negative/under-water `accountValue` clamps to 0; failed/short precompile
+      reads now **revert** (`MarginSummaryReadFailed` / `SpotBalanceReadFailed`)
+      rather than returning a stale/zero value. NAV-manipulation resistance on the
+      performance-fee path stays an audit item.
 - [x] Events/telemetry for every state transition (subgraph-friendly) — incl.
       `OrderCapsUpdated` + OZ `Paused`/`Unpaused`.
 
