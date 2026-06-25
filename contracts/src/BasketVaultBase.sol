@@ -41,8 +41,26 @@ abstract contract BasketVaultBase is ERC4626, Ownable, ReentrancyGuard, Pausable
     /// @notice Strategy key permitted to trade (but never to move funds out).
     address public manager;
 
+    /// @notice Fast-reacting safety key. May pause and tighten risk (reduce-only)
+    /// but can NEVER move funds, change fees, rotate the manager, or unpause — so
+    /// it can live on a hot/automated key while the owner stays cold. Defaults to
+    /// the owner; set to zero to disable (only the owner can then pause).
+    address public guardian;
+
     /// @notice Assets (HyperCore asset ids) the manager is allowed to trade.
     mapping(uint32 => bool) public allowedAsset;
+
+    // --- De-risk / wind-down mode ---
+    // An intermediate state between "normal" and full pause. While enabled, the
+    // manager may only submit reduce-only legs and cannot bridge new margin into
+    // Core — so the owner/guardian can force the strategy into wind-down without
+    // freezing the manager's ability to UNWIND (which a full pause would). Exits
+    // (withdraw/redeem/claim/bridgeFromCore) are never affected.
+    /// @notice When true, manager orders must be reduce-only and bridgeToCore is blocked.
+    bool public reduceOnlyMode;
+    /// @notice When true, manager orders are forced to post-only (ALO) regardless
+    /// of the vault's default time-in-force (owner-set maker-only discipline).
+    bool public requirePostOnly;
 
     // --- Redemption-liveness backstop ---
     // If the manager key goes dark, queued redemptions could starve (no idle
@@ -65,6 +83,10 @@ abstract contract BasketVaultBase is ERC4626, Ownable, ReentrancyGuard, Pausable
     // churn the book before the owner can rotate it or pause.
     /// @notice Max raw notional (`limitPx * sz`) for any single order leg (0 = off).
     uint256 public maxOrderNotional;
+    /// @notice Per-asset override of the single-leg notional cap (0 = fall back to
+    /// the global `maxOrderNotional`). Lets a basket spanning markets of very
+    /// different liquidity be capped individually instead of by one blunt value.
+    mapping(uint32 => uint256) public assetMaxOrderNotional;
     /// @notice Max cumulative order notional within one epoch (0 = off).
     uint256 public epochNotionalCap;
     /// @notice Length of the rolling notional epoch in seconds (0 = off).
@@ -135,6 +157,10 @@ abstract contract BasketVaultBase is ERC4626, Ownable, ReentrancyGuard, Pausable
     }
 
     event ManagerUpdated(address indexed manager);
+    event GuardianUpdated(address indexed guardian);
+    event ReduceOnlyModeUpdated(bool enabled);
+    event RequirePostOnlyUpdated(bool enabled);
+    event AssetOrderCapUpdated(uint32 indexed assetId, uint256 maxOrderNotional);
     event AssetAllowed(uint32 indexed assetId, bool allowed);
     event OrderSubmitted(uint32 indexed assetId, bool isBuy, uint64 limitPx, uint64 sz, bool reduceOnly);
     event BasketSubmitted(uint256 count);
@@ -153,9 +179,11 @@ abstract contract BasketVaultBase is ERC4626, Ownable, ReentrancyGuard, Pausable
     event ProtocolAdminUpdated(address indexed admin);
 
     error NotManager();
+    error NotGuardianOrOwner();
     error NotProtocolAdmin();
     error ZeroAddress();
     error AssetNotAllowed(uint32 assetId);
+    error ReduceOnlyRequired(uint32 assetId);
     error ZeroAmount();
     error ExceedsPending();
     error InsufficientIdleLiquidity();
@@ -168,6 +196,13 @@ abstract contract BasketVaultBase is ERC4626, Ownable, ReentrancyGuard, Pausable
 
     modifier onlyManager() {
         if (msg.sender != manager) revert NotManager();
+        _;
+    }
+
+    /// @dev Emergency-stop authority: the guardian (fast key) or the owner. Never
+    /// grants fund/fee/manager authority — only pausing and tightening risk.
+    modifier onlyGuardianOrOwner() {
+        if (msg.sender != guardian && msg.sender != owner()) revert NotGuardianOrOwner();
         _;
     }
 
@@ -188,6 +223,7 @@ abstract contract BasketVaultBase is ERC4626, Ownable, ReentrancyGuard, Pausable
     ) ERC20(name_, symbol_) ERC4626(asset_) Ownable(owner_) {
         if (manager_ == address(0) || owner_ == address(0)) revert ZeroAddress();
         manager = manager_;
+        guardian = owner_; // defaults to the owner; owner can delegate via setGuardian
         lastManagerAction = block.timestamp;
         managerTimeout = 7 days; // backstop opens after a week of manager silence
 
@@ -204,6 +240,7 @@ abstract contract BasketVaultBase is ERC4626, Ownable, ReentrancyGuard, Pausable
         protocolFeeBps = protocolFeeBps_;
 
         emit ManagerUpdated(manager_);
+        emit GuardianUpdated(owner_);
         emit ProtocolFeeConfigUpdated(protocolTreasury_, protocolFeeBps_);
     }
 
@@ -344,10 +381,15 @@ abstract contract BasketVaultBase is ERC4626, Ownable, ReentrancyGuard, Pausable
         for (uint256 i; i < n; ++i) {
             Order calldata o = orders[i];
             if (!allowedAsset[o.assetId]) revert AssetNotAllowed(o.assetId);
+            // In wind-down mode the manager may only shrink exposure.
+            if (reduceOnlyMode && !o.reduceOnly) revert ReduceOnlyRequired(o.assetId);
 
             uint256 ntl = uint256(o.limitPx) * uint256(o.sz);
-            if (maxOrderNotional != 0 && ntl > maxOrderNotional) {
-                revert OrderNotionalExceeded(o.assetId, ntl, maxOrderNotional);
+            // Per-asset cap wins when set; otherwise fall back to the global cap.
+            uint256 cap = assetMaxOrderNotional[o.assetId];
+            if (cap == 0) cap = maxOrderNotional;
+            if (cap != 0 && ntl > cap) {
+                revert OrderNotionalExceeded(o.assetId, ntl, cap);
             }
             batchNotional += ntl;
 
@@ -366,7 +408,10 @@ abstract contract BasketVaultBase is ERC4626, Ownable, ReentrancyGuard, Pausable
     }
 
     /// @notice Move idle USDC from HyperEVM into the vault's HyperCore account.
+    /// @dev Blocked in reduce-only/wind-down mode: no new margin flows to Core
+    /// while exits (bridgeFromCore / the redemption backstop) stay open.
     function bridgeToCore(uint256 amount) external onlyManager nonReentrant whenNotPaused {
+        if (reduceOnlyMode) revert ReduceOnlyRequired(0);
         _bridgeToCore(amount);
         _touchManager();
         emit BridgedToCore(amount);
@@ -591,6 +636,36 @@ abstract contract BasketVaultBase is ERC4626, Ownable, ReentrancyGuard, Pausable
         emit ManagerUpdated(newManager);
     }
 
+    /// @notice Set the guardian (fast emergency-stop key). Zero disables it, leaving
+    /// the owner as the only pauser. Owner-only — the guardian cannot reassign itself.
+    function setGuardian(address newGuardian) external onlyOwner {
+        guardian = newGuardian;
+        emit GuardianUpdated(newGuardian);
+    }
+
+    /// @notice Enter/exit wind-down mode: manager orders must be reduce-only and
+    /// bridgeToCore is blocked, while exits stay open. Guardian or owner — a
+    /// fast de-risk lever that can never move funds or change fees.
+    function setReduceOnlyMode(bool enabled) external onlyGuardianOrOwner {
+        reduceOnlyMode = enabled;
+        emit ReduceOnlyModeUpdated(enabled);
+    }
+
+    /// @notice Force manager orders to post-only (ALO) regardless of the vault's
+    /// default time-in-force. Owner-only maker-only discipline (not an emergency
+    /// lever: forcing ALO would block a crisis unwind that must cross the book).
+    function setRequirePostOnly(bool enabled) external onlyOwner {
+        requirePostOnly = enabled;
+        emit RequirePostOnlyUpdated(enabled);
+    }
+
+    /// @notice Set a per-asset single-leg notional cap (0 = fall back to the global
+    /// `maxOrderNotional`). Owner-only; never affects exits or the global epoch cap.
+    function setAssetOrderCap(uint32 assetId, uint256 cap) external onlyOwner {
+        assetMaxOrderNotional[assetId] = cap;
+        emit AssetOrderCapUpdated(assetId, cap);
+    }
+
     /// @notice Set the manager-inactivity window before the redemption backstop
     /// opens (0 disables it). Owner-only.
     function setManagerTimeout(uint64 timeout) external onlyOwner {
@@ -621,7 +696,9 @@ abstract contract BasketVaultBase is ERC4626, Ownable, ReentrancyGuard, Pausable
     /// @notice Pause deposits/mints and manager trading (submitBasket, bridgeToCore).
     /// Exits — withdraw, redeem, the async queue, claim, and bridgeFromCore — stay
     /// open, so a pause can shrink risk without ever trapping depositor funds.
-    function pause() external onlyOwner {
+    /// @dev Guardian or owner, so the brake can live on a fast key; unpause stays
+    /// owner-only (deliberate restart).
+    function pause() external onlyGuardianOrOwner {
         _pause();
     }
 
