@@ -22,6 +22,7 @@ from dataclasses import dataclass, field
 from typing import Callable, Dict, List, Optional, Protocol
 
 from .keeper import KeeperConfig, needs_rebalance, plan_liquidity, weights_from_positions
+from .keeper_guard import KeeperState, evaluate_gate
 from .onchain import OnchainOrder
 from .rebalance import compute_rebalance, rebalance_to_onchain
 
@@ -118,6 +119,9 @@ class RebalanceResult:
 class KeeperReport:
     liquidity: LiquidityResult
     rebalance: RebalanceResult
+    # Non-empty when the fail-closed gate refused to act this tick (the bot read
+    # contradictory/missing state and skipped both jobs).
+    blockers: tuple = ()
 
 
 # ──────────────────────────────────────────────────────────────────────────
@@ -150,7 +154,34 @@ class KeeperBot:
     dry_run: bool = True
 
     def tick(self) -> KeeperReport:
-        """Run both jobs once; liquidity first (redemptions are time-sensitive)."""
+        """Run both jobs once; liquidity first (redemptions are time-sensitive).
+
+        A fail-closed gate runs first: if the reads are contradictory or missing,
+        the bot refuses to act this tick and returns a report whose ``blockers``
+        explain why — better to do nothing than bridge/trade on garbage state.
+        """
+        gate = evaluate_gate(
+            KeeperState(
+                idle=self.client.idle_assets(),
+                pending_redeem=self.client.pending_redeem_assets(),
+                nav=self.client.nav(),
+                core_available=self.client.core_available(),
+                positions=self.client.positions(),
+                prices=self.client.prices(),
+            )
+        )
+        if not gate.allowed:
+            note = "gate blocked: " + "; ".join(gate.blockers)
+            return KeeperReport(
+                liquidity=LiquidityResult(
+                    bridged=0.0, shortfall=0.0, submitted=False, verified=False, note=note
+                ),
+                rebalance=RebalanceResult(
+                    triggered=False, submitted=False, verified=False, note=note
+                ),
+                blockers=gate.blockers,
+            )
+
         return KeeperReport(
             liquidity=self._run_liquidity(),
             rebalance=self._run_rebalance(),

@@ -128,6 +128,34 @@ def format_report(report: KeeperReport) -> str:
     return " | ".join(parts)
 
 
+def format_report_json(report: KeeperReport) -> Dict:
+    """Machine-readable health snapshot of a tick (for ``--health-out`` / monitoring).
+
+    ``healthy`` is False if the fail-closed gate blocked, an action came back
+    UNVERIFIED, or there is an unmet redemption shortfall — i.e. the conditions an
+    operator's alerting should page on.
+    """
+    liq, reb = report.liquidity, report.rebalance
+    healthy = (
+        not report.blockers
+        and "UNVERIFIED" not in liq.note
+        and "UNVERIFIED" not in reb.note
+        and liq.shortfall == 0
+    )
+    return {
+        "healthy": healthy,
+        "blockers": list(report.blockers),
+        "liquidity": {
+            "bridged": liq.bridged, "shortfall": liq.shortfall,
+            "submitted": liq.submitted, "verified": liq.verified, "note": liq.note,
+        },
+        "rebalance": {
+            "triggered": reb.triggered, "legs": len(reb.orders),
+            "submitted": reb.submitted, "verified": reb.verified, "note": reb.note,
+        },
+    }
+
+
 def build_arg_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="sandick-keeper", description="Run the SANDICK keeper bot.")
     p.add_argument("--basket", type=Path, default=DEFAULT_BASKET_PATH, help="Basket config.")
@@ -144,6 +172,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p.add_argument("--max-ticks", type=int, help="Stop after N ticks (default: run forever).")
     p.add_argument("--mainnet", action="store_true", help="Use mainnet market data (default testnet).")
     p.add_argument("--execute", action="store_true", help="Actually transmit (default: preview).")
+    p.add_argument("--health-out", help="Write a machine-readable health snapshot JSON each tick. "
+                                        "With --health-out the process exits non-zero when the last tick is unhealthy.")
     return p
 
 
@@ -210,14 +240,21 @@ def main(argv: Optional[List[str]] = None, *, client_factory: Optional[Callable]
     print(f"SANDICK keeper [{mode}] · vault {vault} · {len(inputs.coins)} assets · "
           f"buffer {args.buffer_fraction:.0%} · drift {args.drift_threshold:.0%}")
 
+    health = {"healthy": True}
+
+    def on_report(r: KeeperReport) -> None:
+        print(format_report(r))
+        if args.health_out:
+            snap = format_report_json(r)
+            Path(args.health_out).write_text(json.dumps(snap, indent=2), encoding="utf-8")
+            health["healthy"] = snap["healthy"]
+
     max_ticks = 1 if args.once else args.max_ticks
-    run_loop(
-        bot,
-        interval=args.interval,
-        max_ticks=max_ticks,
-        on_report=lambda r: print(format_report(r)),
-    )
-    return 0
+    run_loop(bot, interval=args.interval, max_ticks=max_ticks, on_report=on_report)
+
+    # With a health sink, surface the last tick's health as the exit code so the
+    # keeper is cron/CI-monitorable.
+    return 1 if (args.health_out and not health["healthy"]) else 0
 
 
 if __name__ == "__main__":  # pragma: no cover

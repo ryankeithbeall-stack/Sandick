@@ -24,6 +24,7 @@ from dataclasses import dataclass
 from typing import List, Optional
 
 from .allocator import AllocationPlan
+from .safety import require_tx_allowed
 
 DEFAULT_SLIPPAGE = 0.02  # 2%
 
@@ -160,6 +161,7 @@ def submit(
     if not config.confirm:
         return [{"status": "preview", "coin": i.coin} for i in intents]
 
+    require_tx_allowed("executor submit")  # hard env gate before any live order
     creds = creds or Credentials.from_env()
     exchange = _make_exchange(creds, config.testnet)
 
