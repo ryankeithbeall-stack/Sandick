@@ -42,7 +42,10 @@ library HyperCoreActions {
 
     /// @notice Place a limit order on a perp (incl. HIP-3) or spot market.
     /// @param asset HyperCore asset id (HIP-3: 100000 + dexIndex*10000 + metaIndex).
-    /// @param limitPx price * 1e8. @param sz size * 1e8. @param cloid 0 = none.
+    /// @param isBuy true = bid, false = ask.
+    /// @param limitPx price * 1e8. @param sz size * 1e8.
+    /// @param reduceOnly true = may only shrink an existing position.
+    /// @param tif time-in-force (1 ALO, 2 GTC, 3 IOC). @param cloid 0 = none.
     function limitOrder(
         uint32 asset,
         bool isBuy,

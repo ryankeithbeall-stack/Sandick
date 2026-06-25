@@ -91,7 +91,10 @@ in everything else.
 
 ## 🟢 Pre-mainnet polish (optional)
 
-- [ ] Foundry test suite mirroring the ethereumjs tests, + `forge fmt` / solhint (auditor familiarity).
+- [x] solhint (npm) wired as an informational CI lint (`.solhint.json`), and a
+      deterministic JS invariant/fuzz harness (`contracts/test/invariant.test.js`)
+      runs in CI. Foundry port + `forge fmt` deferred — the JS harness covers the
+      property/fuzz value; revisit a Foundry mirror for auditor familiarity.
 - [ ] Fork/integration tests against a HyperEVM testnet fork.
 - [x] Deposit cap — owner-settable TVL cap (`setDepositCap`, 0 = uncapped),
       enforced in `maxDeposit`/`maxMint` and a hard `_deposit` backstop; never
