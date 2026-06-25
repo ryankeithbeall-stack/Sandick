@@ -1,7 +1,8 @@
 # SANDICK — Go-Live Checklist
 
 What's left to take the vault from "built + tested offline" to **live**. Everything
-in the codebase today is implemented and tested (205 Python + 44 contract tests,
+in the codebase today is implemented and tested (220 Python + 51 contract tests
+plus a deterministic invariant/fuzz harness,
 all green); nothing below is blocked on more local engineering — it needs a live
 chain, an audit, real Trade.xyz data, or ops wiring.
 

@@ -129,7 +129,9 @@ Depositor-facing copy MUST NOT claim, imply, or omit the following. This governs
 - [ ] **Coverage gates green.** Contract line coverage in CI on both a total floor
       (`COVERAGE_MIN=85`) and a **per-file** floor (`COVERAGE_MIN_PER_FILE=80`);
       Python suite gated at `fail_under = 90` (`pyproject.toml`). Current suite:
-      205 Python + 44 contract tests (`.github/workflows/ci.yml`).
+      220 Python + 51 contract tests, plus a deterministic invariant/fuzz harness
+      (`npm run test:invariant`) and an informational solhint lint
+      (`.github/workflows/ci.yml`).
 - [ ] **Security test plan + threat model reviewed** —
       [`docs/security/SECURITY_TEST_PLAN.md`](security/SECURITY_TEST_PLAN.md) and
       [`docs/security/THREAT_MODEL.md`](security/THREAT_MODEL.md), signed by the

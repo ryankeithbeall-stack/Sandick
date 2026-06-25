@@ -1,7 +1,7 @@
 # Sandick — Outstanding TODO
 
 Status of the HIP-3 equal-weighted basket vault. What's **done** is tested
-(205 Python + 44 contract tests); what's below is what remains before this can
+(220 Python + 51 contract tests, plus an invariant/fuzz harness); what's below is what remains before this can
 hold real money, plus the product surface that doesn't exist yet.
 
 Legend: 🔴 blocker for mainnet · 🟠 important · 🟢 nice-to-have
@@ -145,4 +145,4 @@ precompile, async redemption queue) · rebalance (delta, reduce-only) · HIP-3
 asset-id / 1e8 encoding bridge · deploy + calibration scripts · owner pause +
 order-notional caps · spot-NAV hook · keeper decision logic · front-end
 (demo) + viem chain layer · CI + ruff + coverage gates · depositor docs. All
-tested (205 Python + 44 contract).
+tested (220 Python + 51 contract, plus an invariant/fuzz harness).

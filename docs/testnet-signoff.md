@@ -5,8 +5,8 @@
 > "go-live" task waits on. Do **not** run the `--execute` / mainnet variants until
 > every step here passes and a security audit is complete.
 
-The architecture is simulation- and unit-tested only (205 Python + 44 contract
-tests). What's *unproven* is the live chain behaviour — the precompile reads, the
+The architecture is simulation- and unit-tested only (220 Python + 51 contract
+tests, plus an invariant/fuzz harness). What's *unproven* is the live chain behaviour — the precompile reads, the
 USDC↔Core bridging, and the one load-bearing assumption: that the **vault
 contract account can place HIP-3 orders via CoreWriter** on the Trade.xyz dex.
 
