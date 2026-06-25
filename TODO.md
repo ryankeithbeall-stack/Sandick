@@ -1,7 +1,7 @@
 # Sandick — Outstanding TODO
 
 Status of the HIP-3 equal-weighted basket vault. What's **done** is tested
-(139 Python + 16 contract tests); what's below is what remains before this can
+(205 Python + 44 contract tests); what's below is what remains before this can
 hold real money, plus the product surface that doesn't exist yet.
 
 Legend: 🔴 blocker for mainnet · 🟠 important · 🟢 nice-to-have
@@ -62,7 +62,7 @@ step-by-step runbook for all of this now lives in
       `totalAssets` (default 0); wiring the real spot-balance precompile so USDC
       parked in spot mid-bridge is counted remains.
 - [x] **Pausability / circuit breaker** (owner pauses deposits/trading; exits
-      stay open). `pause`/`unpause` in `SandickVaultBase`.
+      stay open). `pause`/`unpause` in `BasketVaultBase`.
 - [x] **Per-tx and per-epoch caps** on manager order notional (`setOrderCaps`).
 - [x] **Redemption-liveness backstop**: `bridgeFromCoreForRedemptions` lets
       anyone pull USDC back from Core — but only up to the outstanding
@@ -130,4 +130,4 @@ precompile, async redemption queue) · rebalance (delta, reduce-only) · HIP-3
 asset-id / 1e8 encoding bridge · deploy + calibration scripts · owner pause +
 order-notional caps · spot-NAV hook · keeper decision logic · front-end
 (demo) + viem chain layer · CI + ruff + coverage gates · depositor docs. All
-tested (139 Python + 16 contract).
+tested (205 Python + 44 contract).
