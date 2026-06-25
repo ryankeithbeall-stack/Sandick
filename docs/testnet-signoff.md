@@ -5,7 +5,7 @@
 > "go-live" task waits on. Do **not** run the `--execute` / mainnet variants until
 > every step here passes and a security audit is complete.
 
-The architecture is simulation- and unit-tested only (182 Python + 16 contract
+The architecture is simulation- and unit-tested only (205 Python + 44 contract
 tests). What's *unproven* is the live chain behaviour — the precompile reads, the
 USDC↔Core bridging, and the one load-bearing assumption: that the **vault
 contract account can place HIP-3 orders via CoreWriter** on the Trade.xyz dex.
@@ -57,11 +57,11 @@ a `coreScale`. Sanity-check each against the docs/explorer — these are the
 node scripts/deploy.js config/deploy.json --execute
 ```
 
-**Pass:** the `HyperCoreReader` and `SandickVault` are deployed and each basket
+**Pass:** the `HyperCoreReader` and `BasketVault` are deployed and each basket
 `assetId` is allow-listed (`allowedAsset[id] == true`). Record the vault address:
 
 ```bash
-export VAULT_ADDRESS=0x…      # the deployed SandickVault
+export VAULT_ADDRESS=0x…      # the deployed BasketVault
 ```
 
 ## 3. Seed the vault's HyperCore account
