@@ -49,7 +49,7 @@ in everything else.
 
 ### 5. Real Trade.xyz data (replace placeholders)
 - [ ] Resolve the real dex-name string + per-coin perp symbols + asset IDs + `sz_decimals` from the live `meta` (`python -m sandick.admin discover`). **Do not hardcode guesses.**
-- [ ] Confirm which of the seven names are actually listed; substitute any that aren't (likely **SK Hynix** — Korean equity) while keeping the SANDICK spelling.
+- [ ] Confirm which of the seven names are actually listed; substitute any that aren't while keeping the SANDICK spelling. (The former at-risk K slot, SK Hynix, has been swapped for **Kioxia**, which is now listed on Hyperliquid.)
 - [ ] Confirm the vault's EVM USDC is 6-decimal (else fix `coreScale`).
 - **Note:** blocked in the dev sandbox (`api.hyperliquid.xyz` not allowlisted); run from a host with egress.
 - **Done when:** `config/sandick.basket.json` + `config/deploy.json` hold real, verified strings.

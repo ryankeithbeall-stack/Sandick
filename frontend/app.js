@@ -23,13 +23,13 @@ const BASKET = {
     { company: 'Dell',        ticker: 'DELL',   coin: 'DELL',    sz_decimals: 2 },
     { company: 'Intel',       ticker: 'INTC',   coin: 'INTC',    sz_decimals: 1 },
     { company: 'CoreWeave',   ticker: 'CRWV',   coin: 'CRWV',    sz_decimals: 2 },
-    { company: 'SK Hynix',    ticker: '000660', coin: 'SKHYNIX', sz_decimals: 2 },
+    { company: 'Kioxia',      ticker: '285A',   coin: 'KIOXIA',  sz_decimals: 2 },
   ],
 };
 
 const EXAMPLE_PRICES = {
   SNDK: 50.0, ARM: 140.0, NBIS: 50.0, DELL: 120.0,
-  INTC: 22.0, CRWV: 140.0, SKHYNIX: 150.0,
+  INTC: 22.0, CRWV: 140.0, KIOXIA: 150.0,
 };
 
 const N = BASKET.assets.length;

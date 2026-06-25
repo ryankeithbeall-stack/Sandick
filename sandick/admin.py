@@ -13,7 +13,7 @@ Examples:
 
     # Build a basket by selecting assets (offline, from the snapshot):
     python -m sandick.admin build-basket \
-        --select SNDK,ARM,NBIS,DELL,INTC,CRWV,SKHYNIX \
+        --select SNDK,ARM,NBIS,DELL,INTC,CRWV,KIOXIA \
         --dex sandick --name SANDICK \
         --catalog catalog.json --out config/sandick.basket.json
 """
