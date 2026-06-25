@@ -95,6 +95,13 @@ contract BasketVault is BasketVaultBase {
         return reader.accountEquityUsd(address(this));
     }
 
+    /// @dev Count USDC parked in the vault's HyperCore *spot* account (in-flight
+    /// mid-bridge) so NAV stays continuous across the multi-block bridge. Disjoint
+    /// from _coreEquityUsd() (perp margin), so the sum can't double-count.
+    function _coreSpotUsd() internal view override returns (uint256) {
+        return reader.spotBalanceUsd(address(this));
+    }
+
     function _submitOrder(Order calldata order) internal override {
         // Order.limitPx / Order.sz are already in HyperCore 1e8 integer units,
         // produced by the off-chain planner. When the owner has enabled post-only

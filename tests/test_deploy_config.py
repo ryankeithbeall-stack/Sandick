@@ -77,7 +77,8 @@ def test_build_deploy_config_assembles_from_live_data(install_hyperliquid):
     assert cfg["perpDexIndex"] == 1
     assert cfg["assetIds"] == {"SNDK": 110000, "INTC": 110001}
     assert cfg["usdcCoreTokenIndex"] == 0
-    assert cfg["coreScale"] == 100  # weiDecimals 8 - evm 6
+    assert cfg["coreScale"] == 100  # weiDecimals 8 - evm 6 (== reader spot divisor)
+    assert cfg["spotBalancePrecompile"] == "0x0000000000000000000000000000000000000801"
     assert cfg["tif"] == 3
 
 

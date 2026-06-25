@@ -14,9 +14,10 @@
     "KIOXIA": 110006
   },
   "marginSummaryPrecompile": "0x000000000000000000000000000000000000080F",
+  "spotBalancePrecompile": "0x0000000000000000000000000000000000000801",
   "usdcCoreTokenIndex": 0,
   "usdcSystemAddress": "0x2000000000000000000000000000000000000000",
-  "coreScale": 1,
+  "coreScale": 100,
   "tif": 3,
   "protocolFeeBps": 100
 }

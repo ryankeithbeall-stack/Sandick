@@ -27,7 +27,16 @@ function loadConfig(path) {
 }
 
 function readerArgs(cfg) {
-  return [cfg.marginSummaryPrecompile, cfg.perpDexIndex];
+  // spotWeiToAssetDivisor is sourced from cfg.coreScale (single source of truth):
+  // coreScale is the EVM->Core write-path multiplier; the spot read divides by the
+  // same value on the Core->EVM path, so they can never diverge.
+  return [
+    cfg.marginSummaryPrecompile,
+    cfg.perpDexIndex,
+    cfg.spotBalancePrecompile,
+    cfg.usdcCoreTokenIndex,
+    cfg.coreScale,
+  ];
 }
 
 function protocolFeeBps(cfg, env) {
