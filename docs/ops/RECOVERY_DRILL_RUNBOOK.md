@@ -38,7 +38,8 @@ the manager can only shrink the book.
 ## Step 0 — Pre-flight
 
 ```bash
-npm run test:contracts        # 44 contract tests must be green before drilling
+npm run test:contracts        # 51 contract tests must be green before drilling
+npm run test:invariant        # invariant/fuzz harness must be green too
 sandick-keeper --once --health-out health.json   # PREVIEW; nothing sent
 ```
 
