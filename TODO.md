@@ -108,10 +108,19 @@ step-by-step runbook for all of this now lives in
 ## 7. Engineering hygiene 🟢
 - [x] CI: `ruff` + `pytest` (coverage-gated, py3.10–3.12) + `npm run
       test:contracts` + contract coverage on every push (`.github/workflows/ci.yml`).
-- [ ] Foundry test suite (mirrors the ethereumjs tests) for auditor familiarity.
+- [x] Property/invariant fuzz harness (`contracts/test/invariant.test.js`) on the
+      existing @ethereumjs/vm engine: randomized **valid** action sequences from
+      deterministic seeds assert NAV identity, solvency, redemption-queue
+      conservation, manager-can't-extract, bridge NAV-neutrality, and no
+      deposit→redeem round-trip extraction. Runs in CI (`npm run test:invariant`).
+- [~] Foundry test suite — **deferred**. The bespoke @ethereumjs/vm suite plus the
+      new JS invariant/fuzz harness already give property coverage; a full Foundry
+      port duplicates the toolchain for marginal gain. Revisit if auditors want
+      `forge` familiarity.
 - [ ] Fork/integration tests against a HyperEVM testnet fork if tooling allows.
 - [x] Linting/formatting for Python (ruff, configured in `pyproject.toml`).
-- [ ] Solidity formatting/linting (forge fmt / solhint).
+- [x] Solidity linting: **solhint** (npm), config in `.solhint.json`, informational
+      CI job (`npm run lint:sol`). `forge fmt` deferred with Foundry.
 
 ## 8. Product / economics 🟢
 - [x] Fee model: 2%/yr management + 10% performance (over a high-water mark) +

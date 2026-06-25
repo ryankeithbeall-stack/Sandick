@@ -43,6 +43,8 @@ jobs:
         run: npm ci
       - name: Run contract tests
         run: npm run test:contracts
+      - name: Invariant / fuzz tests (deterministic seeds)
+        run: npm run test:invariant
       - name: Contract coverage (gate on total + per-file line coverage)
         env:
           COVERAGE_MIN: "85"
@@ -68,6 +70,9 @@ jobs:
           cache: npm
       - name: Install dependencies
         run: npm ci   # OpenZeppelin sources for the @openzeppelin remap
+      - name: Solidity lint (solhint, informational)
+        run: npm run lint:sol
+        continue-on-error: true
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
