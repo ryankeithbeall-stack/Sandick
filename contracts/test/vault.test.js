@@ -539,6 +539,139 @@ async function main() {
     assert.ok(names.includes("bridgeToCore") && names.includes("bridgeFromCore"));
   });
 
+  // ---- Wren-derived safety controls: guardian, reduce-only, per-asset caps ----
+
+  await test("guardian can pause + de-risk but has no fund/fee/manager power", async () => {
+    const { vault } = await fixture();
+    // owner-only to assign; the guardian cannot reassign itself
+    await assert.rejects(() => vault.send(alice, "setGuardian", [a(bob)]));
+    await vault.send(owner, "setGuardian", [a(bob)]);
+    assert.equal(a(await vault.call("guardian")), a(bob));
+
+    // guardian (bob) can pause and toggle wind-down mode
+    await vault.send(bob, "pause");
+    assert.equal(await vault.call("paused"), true);
+    await vault.send(bob, "setReduceOnlyMode", [true]);
+    assert.equal(await vault.call("reduceOnlyMode"), true);
+
+    // ...but never unpause, fees, manager rotation, caps, or post-only
+    await assert.rejects(() => vault.send(bob, "unpause"));
+    await assert.rejects(() => vault.send(bob, "setFeeConfig", [a(bob), 0, 0, 0]));
+    await assert.rejects(() => vault.send(bob, "setManager", [a(bob)]));
+    await assert.rejects(() => vault.send(bob, "setOrderCaps", [0n, 0n, 0n]));
+    await assert.rejects(() => vault.send(bob, "setAssetOrderCap", [7, 1n]));
+    await assert.rejects(() => vault.send(bob, "setRequirePostOnly", [true]));
+
+    await vault.send(owner, "unpause"); // owner always can
+    assert.equal(await vault.call("paused"), false);
+  });
+
+  await test("guardian defaults to the owner; a random account cannot pause", async () => {
+    const { vault } = await fixture();
+    assert.equal(a(await vault.call("guardian")), a(owner));
+    await assert.rejects(() => vault.send(alice, "pause"));
+    await vault.send(owner, "pause"); // owner satisfies guardian-or-owner
+    assert.equal(await vault.call("paused"), true);
+  });
+
+  await test("reduce-only mode: only shrinking legs trade; new margin blocked, exits open", async () => {
+    const { vault } = await fixture();
+    await vault.send(alice, "deposit", [1000n * USDC, a(alice)]);
+    await vault.send(manager, "bridgeToCore", [500n * USDC]); // fund Core before de-risk
+    await vault.send(owner, "setAllowedAsset", [7, true]);
+    await vault.send(owner, "setReduceOnlyMode", [true]);
+
+    // exposure-increasing leg rejected; reduce-only leg passes
+    await assert.rejects(() =>
+      vault.send(manager, "submitBasket", [[[7, true, 200n, 100n, false]]])
+    );
+    await vault.send(manager, "submitBasket", [[[7, false, 200n, 100n, true]]]);
+    assert.equal(await vault.call("submittedCount"), 1n);
+
+    // no new margin into Core...
+    await assert.rejects(() => vault.send(manager, "bridgeToCore", [10n * USDC]));
+    // ...but funds can still be pulled BACK from Core (exit path open)
+    await vault.send(manager, "bridgeFromCore", [100n * USDC]);
+
+    // turning it off restores normal trading
+    await vault.send(owner, "setReduceOnlyMode", [false]);
+    await vault.send(manager, "submitBasket", [[[7, true, 200n, 100n, false]]]);
+    assert.equal(await vault.call("submittedCount"), 2n);
+  });
+
+  await test("per-asset order cap overrides the global cap", async () => {
+    const { vault } = await fixture();
+    await vault.send(owner, "setAllowedAsset", [7, true]);
+    await vault.send(owner, "setAllowedAsset", [8, true]);
+    await vault.send(owner, "setOrderCaps", [1_000_000_000_000n, 0n, 0n]); // global 1e12
+    await vault.send(owner, "setAssetOrderCap", [7, 1_000_000n]); // asset 7 tightened to 1e6
+
+    // asset 7: 200*100=20_000 <= 1e6 ok; 2000*1000=2e6 > 1e6 revert
+    await vault.send(manager, "submitBasket", [[[7, true, 200n, 100n, false]]]);
+    await assert.rejects(() =>
+      vault.send(manager, "submitBasket", [[[7, true, 2000n, 1000n, false]]])
+    );
+    // asset 8 has no per-asset cap -> falls back to the looser global 1e12
+    await vault.send(manager, "submitBasket", [[[8, true, 2000n, 1000n, false]]]);
+    assert.equal(await vault.call("submittedCount"), 2n);
+  });
+
+  await test("requirePostOnly is owner-gated and stored", async () => {
+    const { vault } = await fixture();
+    assert.equal(await vault.call("requirePostOnly"), false);
+    await assert.rejects(() => vault.send(manager, "setRequirePostOnly", [true]));
+    await vault.send(owner, "setRequirePostOnly", [true]);
+    assert.equal(await vault.call("requirePostOnly"), true);
+  });
+
+  await test("manager cannot call any owner/guardian-gated setter", async () => {
+    const { vault } = await fixture();
+    const gated = [
+      ["setManager", [a(manager)]],
+      ["setGuardian", [a(manager)]],
+      ["setFeeConfig", [a(manager), 0, 0, 0]],
+      ["setManagerTimeout", [0n]],
+      ["setAllowedAsset", [7, true]],
+      ["setOrderCaps", [0n, 0n, 0n]],
+      ["setAssetOrderCap", [7, 1n]],
+      ["setRequirePostOnly", [true]],
+      ["setReduceOnlyMode", [true]], // guardian-or-owner; manager is neither
+      ["pause", []], // guardian-or-owner
+      ["unpause", []], // owner
+    ];
+    for (const [fn, args] of gated) {
+      await assert.rejects(() => vault.send(manager, fn, args), `${fn} should reject manager`);
+    }
+  });
+
+  await test("recovery drill: de-risk, tighten, rotate; old manager loses all power", async () => {
+    const { vault } = await fixture();
+    await vault.send(alice, "deposit", [1000n * USDC, a(alice)]);
+    await vault.send(manager, "bridgeToCore", [500n * USDC]);
+    await vault.send(owner, "setAllowedAsset", [7, true]);
+
+    // 1. force wind-down, 2. tighten the asset cap, 3. rotate the suspect key
+    await vault.send(owner, "setReduceOnlyMode", [true]);
+    await vault.send(owner, "setAssetOrderCap", [7, 1_000_000n]);
+    await vault.send(owner, "setManager", [a(bob)]);
+
+    // old manager is fully deauthorized
+    await assert.rejects(() =>
+      vault.send(manager, "submitBasket", [[[7, false, 100n, 100n, true]]])
+    );
+    await assert.rejects(() => vault.send(manager, "bridgeFromCore", [1n]));
+
+    // new manager: only reduce-only legs within the tightened cap
+    await assert.rejects(() =>
+      vault.send(bob, "submitBasket", [[[7, true, 100n, 100n, false]]]) // not reduceOnly
+    );
+    await assert.rejects(() =>
+      vault.send(bob, "submitBasket", [[[7, false, 2000n, 1000n, true]]]) // 2e6 > 1e6 cap
+    );
+    await vault.send(bob, "submitBasket", [[[7, false, 200n, 100n, true]]]);
+    assert.equal(await vault.call("submittedCount"), 1n);
+  });
+
   console.log(`\n${passed} contract test(s) passed.`);
 }
 

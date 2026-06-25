@@ -97,14 +97,16 @@ contract BasketVault is BasketVaultBase {
 
     function _submitOrder(Order calldata order) internal override {
         // Order.limitPx / Order.sz are already in HyperCore 1e8 integer units,
-        // produced by the off-chain planner.
+        // produced by the off-chain planner. When the owner has enabled post-only
+        // discipline, force ALO regardless of the vault's default time-in-force.
+        uint8 orderTif = requirePostOnly ? HyperCoreActions.TIF_ALO : tif;
         HyperCoreActions.limitOrder(
             order.assetId,
             order.isBuy,
             order.limitPx,
             order.sz,
             order.reduceOnly,
-            tif,
+            orderTif,
             0 // no client order id
         );
     }
